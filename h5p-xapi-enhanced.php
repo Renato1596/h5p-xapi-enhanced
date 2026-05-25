@@ -3,7 +3,7 @@
  * Plugin Name:  H5P xAPI Enhanced Tracker
  * Description:  Tracciamento xAPI dettagliato per H5P (Interactive Video, Game Map,
  *               Virtual Tour) con pagina di configurazione integrata.
- * Version:      1.2.0
+ * Version:      1.2.1
  * Author:       Nicola Mastrorilli / Cartesiani
  * GitHub Plugin URI: https://github.com/Renato1596/h5p-xapi-enhanced
  */
@@ -34,7 +34,7 @@ $h5pxapi_updater->getVcsApi()->enableReleaseAssets();
 //  COSTANTI  (wp-config.php ha sempre la precedenza sulle opzioni del DB)
 // ═══════════════════════════════════════════════════════════════════════════
 
-define( 'H5PXAPI_VERSION',     '1.2.0' );
+define( 'H5PXAPI_VERSION',     '1.2.1' );
 define( 'H5PXAPI_PLUGIN_DIR',  plugin_dir_path( __FILE__ ) );
 define( 'H5PXAPI_PLUGIN_URL',  plugin_dir_url( __FILE__ ) );
 define( 'H5PXAPI_OPTION_KEY',  'h5pxapi_settings' );
@@ -460,8 +460,17 @@ add_action( 'wp_ajax_h5pxapi_test_connection', function () {
 add_filter( 'h5p_alter_library_scripts', 'h5pxapi_inject_scripts', 10, 3 );
 
 function h5pxapi_inject_scripts( &$scripts, $libraries, $embed_type ) {
+    // Inietta solo nell'embed di fruizione, non nell'editor H5P.
+    // L'editor passa $embed_type = 'editor', il player passa 'div' o 'iframe'.
+    if ( $embed_type === 'editor' ) {
+        return $scripts;
+    }
+
+    // Genera il file config.js statico se non esiste o è scaduto
+    h5pxapi_generate_config_file();
+
     $scripts[] = (object) [
-        'path'    => admin_url( 'admin-ajax.php' ) . '?action=h5pxapi_config',
+        'path'    => H5PXAPI_PLUGIN_URL . 'js/config.js',
         'version' => '?ver=' . md5( h5pxapi_get('lrs_endpoint') . h5pxapi_get('lrs_username') ),
     ];
     $scripts[] = (object) [
@@ -471,34 +480,41 @@ function h5pxapi_inject_scripts( &$scripts, $libraries, $embed_type ) {
     return $scripts;
 }
 
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  AJAX — serve la config come JavaScript (dentro l'iframe H5P)
-// ═══════════════════════════════════════════════════════════════════════════
-
-add_action( 'wp_ajax_h5pxapi_config',        'h5pxapi_serve_config' );
-add_action( 'wp_ajax_nopriv_h5pxapi_config', 'h5pxapi_serve_config' );
-
-function h5pxapi_serve_config() {
+// Genera js/config.js come file statico con le credenziali correnti.
+// Viene rigenerato ogni volta che le impostazioni cambiano.
+function h5pxapi_generate_config_file() {
     $user       = wp_get_current_user();
     $actor_name = $user->ID ? $user->display_name : '';
     $actor_mbox = $user->ID ? 'mailto:' . $user->user_email : '';
     $auth       = base64_encode( h5pxapi_get('lrs_username') . ':' . h5pxapi_get('lrs_password') );
     $opts       = get_option( H5PXAPI_OPTION_KEY, [] );
+    $debug      = ( $opts['debug'] ?? '0' ) === '1' ? 'true' : 'false';
 
-    header( 'Content-Type: application/javascript; charset=utf-8' );
-    header( 'Cache-Control: no-store' );
-    echo "window.H5PxAPIConfig = {\n";
-    echo "  lrsEndpoint: " . json_encode( rtrim( h5pxapi_get('lrs_endpoint'), '/' ) ) . ",\n";
-    echo "  lrsAuth:     " . json_encode( $auth ) . ",\n";
-    echo "  actorName:   " . json_encode( $actor_name ) . ",\n";
-    echo "  actorMbox:   " . json_encode( $actor_mbox ) . ",\n";
-    echo "  homepage:    " . json_encode( h5pxapi_get('homepage', get_site_url()) ) . ",\n";
-    echo "  debug:       " . ( ( $opts['debug'] ?? '0' ) === '1' ? 'true' : 'false' ) . "\n";
-    echo "};\n";
-    exit;
+    $js = "/* H5P xAPI Enhanced — config (auto-generato) */
+";
+    $js .= "window.H5PxAPIConfig = {
+";
+    $js .= "  lrsEndpoint: " . json_encode( rtrim( h5pxapi_get('lrs_endpoint'), '/' ) ) . ",
+";
+    $js .= "  lrsAuth:     " . json_encode( $auth ) . ",
+";
+    $js .= "  actorName:   " . json_encode( $actor_name ) . ",
+";
+    $js .= "  actorMbox:   " . json_encode( $actor_mbox ) . ",
+";
+    $js .= "  homepage:    " . json_encode( h5pxapi_get('homepage', get_site_url()) ) . ",
+";
+    $js .= "  debug:       " . $debug . "
+";
+    $js .= "};
+";
+
+    $file_path = H5PXAPI_PLUGIN_DIR . 'js/config.js';
+    file_put_contents( $file_path, $js );
 }
 
+// Rigenera config.js ogni volta che le impostazioni vengono salvate
+add_action( 'update_option_' . H5PXAPI_OPTION_KEY, 'h5pxapi_generate_config_file' );
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  LINK RAPIDO "Impostazioni" nella lista plugin

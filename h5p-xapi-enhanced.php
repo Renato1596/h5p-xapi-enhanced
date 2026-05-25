@@ -4,7 +4,7 @@
  * Description:  Tracciamento xAPI dettagliato per H5P (Interactive Video, Game Map,
  *               Virtual Tour) con pagina di configurazione integrata.
  * Version:      1.2.0
- * Author:       Nicola Ferri / Cartesiani
+ * Author:       Nicola Mastrorilli / Cartesiani
  * GitHub Plugin URI: https://github.com/Renato1596/h5p-xapi-enhanced
  */
 

@@ -1,5 +1,5 @@
 /**
- * H5P xAPI Enhanced Tracker  —  tracker.js  v1.1.0
+ * H5P xAPI Enhanced Tracker  —  tracker.js  v1.2.1
  * ─────────────────────────────────────────────────────────────────────────────
  * Questo script viene caricato DENTRO il contesto H5P (iframe incluso).
  *
@@ -179,9 +179,168 @@
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // 5.  PASS-THROUGH xAPI nativo
-  //     Arricchisce gli statement H5P nativi con result.duration dove manca.
-  //     Per i content type non potenziati, questo è l'unico tracciamento.
+  // 5.  STATEMENT FIXER — migliora la qualità degli statement nativi H5P
+  //
+  //  Problemi che corregge:
+  //   A) Activity ID brutti (admin-ajax.php?action=h5p_embed&id=1?subContentId=xxx)
+  //      → sostituiti con URL leggibili basati sulla pagina reale
+  //   B) object.definition.name mancante
+  //      → copiato da definition.description (dove H5P mette il testo della domanda)
+  //   C) contextActivities incompleto
+  //      → parent pulito, grouping con IV + pagina WordPress, category preservata
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // URL della pagina WordPress che ha embeddato l'H5P.
+  // Dentro l'iframe: document.referrer = pagina embedding.
+  // In embed div (no iframe): window.location.href = la pagina stessa.
+  var _pageUrl = null;
+
+  function getPageUrl() {
+    if (_pageUrl) return _pageUrl;
+    var isIframe = window.parent !== window;
+    if (isIframe && document.referrer) {
+      _pageUrl = document.referrer.split('?')[0].replace(/\/$/, '');
+    } else if (!isIframe) {
+      _pageUrl = window.location.href.split('?')[0].replace(/\/$/, '');
+    } else {
+      _pageUrl = cfg.homepage || window.location.origin;
+    }
+    return _pageUrl;
+  }
+
+  function isH5PEmbedUrl(id) {
+    return id && id.indexOf('h5p_embed') !== -1;
+  }
+
+  function parseH5PEmbedUrl(id) {
+    var contentIdMatch   = id.match(/[?&]id=(\d+)/);
+    var subContentIdMatch = id.match(/subContentId=([a-f0-9-]+)/i);
+    return {
+      contentId:    contentIdMatch    ? contentIdMatch[1]    : null,
+      subContentId: subContentIdMatch ? subContentIdMatch[1] : null,
+    };
+  }
+
+  // Costruisce un activity ID pulito e stabile:
+  // https://uniarts.it/nome-pagina#h5p-1            → il contenuto IV
+  // https://uniarts.it/nome-pagina#h5p-1/uuid       → un'interazione dentro l'IV
+  function buildCleanId(contentId, subContentId) {
+    var base = getPageUrl() + '#h5p-' + contentId;
+    return subContentId ? base + '/' + subContentId : base;
+  }
+
+  // Estrae il content ID numerico dallo statement (non il subContentId)
+  function getContentIdFromStmt(stmt) {
+    var ext = stmt.object && stmt.object.definition && stmt.object.definition.extensions;
+    if (ext && ext['http://h5p.org/x-api/h5p-local-content-id']) {
+      return String(ext['http://h5p.org/x-api/h5p-local-content-id']);
+    }
+    if (stmt.object && stmt.object.id) {
+      var m = stmt.object.id.match(/[?&]id=(\d+)/);
+      if (m) return m[1];
+    }
+    return null;
+  }
+
+  function getTitleFromContentId(contentId) {
+    var cid = 'cid-' + contentId;
+    if (window.H5PIntegration && H5PIntegration.contents && H5PIntegration.contents[cid]) {
+      return H5PIntegration.contents[cid].title || 'H5P Content';
+    }
+    return 'H5P Content';
+  }
+
+  function fixStatement(stmt) {
+    var contentId    = getContentIdFromStmt(stmt);
+    if (!contentId) return stmt;  // non è uno statement H5P che possiamo migliorare
+
+    var pageUrl      = getPageUrl();
+    var contentTitle = getTitleFromContentId(contentId);
+    var pageTitle    = document.title || pageUrl;
+
+    // ── A. Pulisci object.id ─────────────────────────────────────────────
+    if (stmt.object && stmt.object.id && isH5PEmbedUrl(stmt.object.id)) {
+      var parsedObj  = parseH5PEmbedUrl(stmt.object.id);
+      stmt.object.id = buildCleanId(
+        parsedObj.contentId || contentId,
+        parsedObj.subContentId
+      );
+    }
+
+    // ── B. Aggiungi object.definition.name se mancante ───────────────────
+    // H5P mette il testo della domanda in definition.description ma spesso
+    // lascia definition.name vuoto. Lo copiamo per avere un nome leggibile.
+    if (stmt.object && stmt.object.definition) {
+      var def = stmt.object.definition;
+      var hasName = def.name && Object.keys(def.name).length > 0;
+      if (!hasName) {
+        if (def.description && Object.keys(def.description).length > 0) {
+          def.name = deepClone(def.description);
+        } else {
+          def.name = { 'en-US': contentTitle };
+        }
+      }
+    }
+
+    // ── C. Ricostruisci contextActivities ────────────────────────────────
+    var ctx = stmt.context = stmt.context || {};
+    var ca  = ctx.contextActivities = ctx.contextActivities || {};
+
+    // parent: pulisci URL brutti mantenendo il riferimento corretto
+    if (ca.parent && ca.parent.length > 0) {
+      ca.parent = ca.parent.map(function (p) {
+        if (!p.id || !isH5PEmbedUrl(p.id)) return p;
+        var pp     = parseH5PEmbedUrl(p.id);
+        var cleanId = buildCleanId(pp.contentId || contentId, pp.subContentId);
+        return {
+          objectType: 'Activity',
+          id: cleanId,
+          definition: p.definition || {
+            type: pp.subContentId
+              ? 'http://adlnet.gov/expapi/activities/interaction'
+              : 'https://w3id.org/xapi/video/activity-type/video',
+            name: { 'en-US': pp.subContentId ? 'Interaction' : contentTitle },
+          },
+        };
+      });
+    }
+
+    // grouping: aggiungi l'IV e la pagina WordPress come contesto più ampio
+    var h5pId          = buildCleanId(contentId, null);
+    var existingOther  = (ca.grouping || []).filter(function (g) {
+      return g.id && !isH5PEmbedUrl(g.id) && g.id !== h5pId && g.id !== pageUrl;
+    });
+
+    ca.grouping = [
+      {
+        objectType: 'Activity',
+        id: h5pId,
+        definition: {
+          type: 'https://w3id.org/xapi/video/activity-type/video',
+          name: { 'en-US': contentTitle },
+        },
+      },
+      {
+        objectType: 'Activity',
+        id: pageUrl,
+        definition: {
+          type: 'http://adlnet.gov/expapi/activities/module',
+          name: { 'en-US': pageTitle },
+        },
+      },
+    ].concat(existingOther);
+
+    // category: già corretta da H5P (es. H5P.SingleChoiceSet-1.11) — non toccare
+
+    return stmt;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 6.  PASS-THROUGH xAPI nativo
+  //     Forwarda tutti gli statement H5P al LRS dopo aver:
+  //       1. aggiunto l'actor se mancante
+  //       2. applicato fixStatement per pulire ID e gerarchia
+  //       3. aggiunto result.duration sui completed senza durata
   // ══════════════════════════════════════════════════════════════════════════
 
   // Timer globale per il tempo sulla pagina/sessione
@@ -198,8 +357,10 @@
       stmt.actor = buildActor();
     }
 
-    // Se lo statement è un "completed" e non ha duration, aggiungi il tempo
-    // di sessione come stima conservativa
+    // Migliora la qualità dello statement
+    stmt = fixStatement(stmt);
+
+    // Aggiungi duration ai completed che ne sono privi
     if (stmt.verb && stmt.verb.id &&
         stmt.verb.id.indexOf('completed') !== -1 &&
         stmt.result && !stmt.result.duration) {
@@ -821,7 +982,7 @@
   // ══════════════════════════════════════════════════════════════════════════
 
   function onReady() {
-    log('H5P xAPI Enhanced Tracker v1.1.0 — inizializzazione');
+    log('H5P xAPI Enhanced Tracker v1.2.1 — inizializzazione');
 
     H5P.externalDispatcher.on('xAPI', onNativeXAPI);
 

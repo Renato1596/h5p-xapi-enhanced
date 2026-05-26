@@ -1,5 +1,5 @@
 /**
- * H5P xAPI Enhanced Tracker  —  tracker.js  v1.3.2
+ * H5P xAPI Enhanced Tracker  —  tracker.js  v1.3.3
  * ─────────────────────────────────────────────────────────────────────────────
  * Questo script viene caricato DENTRO il contesto H5P (iframe incluso).
  *
@@ -1034,7 +1034,7 @@
       // Feedback visivo sul bottone
       var btn = document.getElementById('h5pxapi-tour-btn');
       if (btn) {
-        btn.textContent = '✓ Tour completato';
+        btn.textContent = '✓ Sessione chiusa';
         btn.style.background = 'rgba(30,130,60,0.9)';
         btn.disabled = true;
         setTimeout(function () {
@@ -1053,7 +1053,7 @@
 
       var btn = document.createElement('button');
       btn.id  = 'h5pxapi-tour-btn';
-      btn.textContent = '✓ Completa tour';
+      btn.textContent = '⊗ Exit tour';
       btn.style.cssText = [
         'position:fixed', 'bottom:20px', 'right:20px', 'z-index:99999',
         'background:rgba(0,0,0,0.70)', 'color:#fff', 'border:none',
@@ -1065,7 +1065,19 @@
 
       btn.onmouseover = function () { this.style.background = 'rgba(0,0,0,0.88)'; };
       btn.onmouseout  = function () { this.style.background = 'rgba(0,0,0,0.70)'; };
-      btn.onclick     = sendTourCompleted;
+      btn.onclick = function () {
+        sendTourCompleted();
+        // Dopo 1.8s chiude la finestra o torna al dominio
+        setTimeout(function () {
+          if (window.history.length > 1) {
+            window.history.back();
+          } else {
+            try { window.close(); } catch(e) {}
+            // Se window.close() non funziona (policy browser), torna al dominio
+            window.location.href = cfg.homepage || window.location.origin;
+          }
+        }, 1800);
+      };
 
       document.body.appendChild(btn);
       log('VirtualTour: bottone Completa tour aggiunto a document.body');
@@ -1106,11 +1118,69 @@
       });
     });
 
-    // ── Hotspot interattivi ───────────────────────────────────────────────
+    // ── Hotspot interattivi — evento H5P ─────────────────────────────────
     instance.on('interact', function (event) {
-      var data         = event.data || {};
-      var intId        = data.interactionId || data.id || 'unknown';
-      var intName      = data.label || data.title || ('Hotspot ' + intId);
+      var data    = event.data || {};
+      var intId   = data.interactionId || data.id || 'unknown';
+      var intName = data.label || data.title || ('Hotspot ' + intId);
+      sendHotspotStatement(intId, intName);
+    });
+
+    // ── Info hotspot — MutationObserver sul DOM ───────────────────────────
+    // H5P Virtual Tour apre i popup info creando elementi DOM con classi
+    // come .h5p-info-display, .h5p-three-image-popup, ecc.
+    // Li rileviamo con MutationObserver e inviamo uno statement "interacted".
+    var openInfoIds = {}; // evita doppi statement per lo stesso popup
+    setTimeout(function () {
+      var observer = new MutationObserver(function (mutations) {
+        mutations.forEach(function (mutation) {
+          mutation.addedNodes.forEach(function (node) {
+            if (node.nodeType !== 1) return; // solo elementi
+            // Classi tipiche dei popup info in H5P.ThreeImage
+            var isInfoPopup = node.classList &&
+              (node.classList.contains('h5p-info-display') ||
+               node.classList.contains('h5p-three-image-popup') ||
+               node.classList.contains('h5p-interaction-wrapper') ||
+               node.classList.contains('h5p-dialog') ||
+               (node.className && node.className.indexOf('h5p') !== -1 &&
+                node.className.indexOf('popup') !== -1));
+
+            if (!isInfoPopup) return;
+
+            // Cerca il titolo del popup
+            var titleEl  = node.querySelector('h2, h3, .h5p-title, .title, [class*="title"]');
+            var infoName = titleEl ? (titleEl.textContent || '').trim() : 'Info popup';
+            if (!infoName) infoName = 'Info popup';
+
+            // Dedup per evitare statement doppi
+            var infoKey = (currentScene ? currentScene.id : 'root') + ':' + infoName;
+            if (openInfoIds[infoKey]) return;
+            openInfoIds[infoKey] = true;
+
+            // Pulisci quando il popup viene rimosso
+            var closeObserver = new MutationObserver(function (m2) {
+              m2.forEach(function (m) {
+                m.removedNodes.forEach(function (removed) {
+                  if (removed === node) {
+                    delete openInfoIds[infoKey];
+                    closeObserver.disconnect();
+                  }
+                });
+              });
+            });
+            closeObserver.observe(node.parentNode || document.body, { childList: true });
+
+            sendHotspotStatement('info:' + infoName, infoName);
+            log('VirtualTour: info popup aperto →', infoName);
+          });
+        });
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      log('VirtualTour: MutationObserver info popup attivo');
+    }, 1000);
+
+    // ── Helper comune per statement hotspot ───────────────────────────────
+    function sendHotspotStatement(intId, intName) {
       sendStatement({
         actor: buildActor(),
         verb: {
@@ -1129,7 +1199,7 @@
         result: { duration: sceneTimer ? sceneTimer.isoElapsed() : 'PT0S' },
         context: buildTourContext(),
       });
-    });
+    }
 
     // ── Monkey-patch navigateTo ───────────────────────────────────────────
     setTimeout(function () {
@@ -1144,9 +1214,14 @@
     }, 500);
 
     // ── Polling ogni 500ms ────────────────────────────────────────────────
+    // Confronta con currentScene.id (non lastPolledScene) per rilevare
+    // anche i ritorni a scene già visitate (es. scena2 → scena1 → scena2)
     var pollInterval = setInterval(function () {
       var sceneId = getInstanceCurrentScene();
-      if (!sceneId || sceneId === lastPolledScene) return;
+      if (!sceneId) return;
+      // Invia onSceneChange solo se la scena ATTUALE è diversa dall'ultima tracciata
+      var trackedId = currentScene ? currentScene.id : null;
+      if (sceneId === trackedId) return;
       var sceneName = getSceneNameFromParams(sceneId) || ('Scena ' + sceneId);
       onSceneChange(sceneId, sceneName);
     }, 500);
@@ -1234,7 +1309,7 @@
   // ══════════════════════════════════════════════════════════════════════════
 
   function onReady() {
-    log('H5P xAPI Enhanced Tracker v1.3.2 — inizializzazione');
+    log('H5P xAPI Enhanced Tracker v1.3.3 — inizializzazione');
 
     H5P.externalDispatcher.on('xAPI', onNativeXAPI);
 

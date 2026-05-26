@@ -1,5 +1,5 @@
 /**
- * H5P xAPI Enhanced Tracker  —  tracker.js  v1.3.4
+ * H5P xAPI Enhanced Tracker  —  tracker.js  v1.3.5
  * ─────────────────────────────────────────────────────────────────────────────
  * Questo script viene caricato DENTRO il contesto H5P (iframe incluso).
  *
@@ -868,19 +868,6 @@
     var currentScene  = null;
     var sceneTimer    = null;
 
-    // DEBUG — in modalità debug, logga le proprietà dell'istanza
-    // Utile per capire quali eventi e proprietà espone la versione installata
-    if (DEBUG) {
-      log('VirtualTour instance keys:', Object.keys(instance).join(', '));
-      if (instance.params) {
-        log('VirtualTour params.scenes:', JSON.stringify(
-          (instance.params.scenes || []).map(function(s) {
-            return { id: s.sceneId, name: s.scenename || s.sceneDescription };
-          })
-        ));
-      }
-    }
-
     // ── Indice scene dai params ───────────────────────────────────────────
     var scenesById = {};
     ((instance.params && instance.params.scenes) || []).forEach(function (s) {
@@ -892,22 +879,12 @@
       return {
         contextActivities: {
           grouping: [
-            {
-              objectType: 'Activity',
-              id: activityId,
-              definition: {
-                type: 'https://w3id.org/xapi/virtual-reality/activity-type/360-image',
-                name: { 'en-US': title },
-              },
-            },
-            {
-              objectType: 'Activity',
-              id: pageUrl,
-              definition: {
-                type: 'http://adlnet.gov/expapi/activities/module',
-                name: { 'en-US': pageTitle !== pageUrl ? pageTitle : title },
-              },
-            },
+            { objectType: 'Activity', id: activityId,
+              definition: { type: 'https://w3id.org/xapi/virtual-reality/activity-type/360-image',
+                            name: { 'en-US': title } } },
+            { objectType: 'Activity', id: pageUrl,
+              definition: { type: 'http://adlnet.gov/expapi/activities/module',
+                            name: { 'en-US': pageTitle !== pageUrl ? pageTitle : title } } },
           ],
         },
       };
@@ -917,45 +894,22 @@
       return {
         objectType: 'Activity',
         id: activityId + '/scene/' + encodeURIComponent(sceneId),
-        definition: {
-          type: 'https://w3id.org/xapi/virtual-reality/activity-type/scene',
-          name: { 'en-US': sceneName },
-        },
+        definition: { type: 'https://w3id.org/xapi/virtual-reality/activity-type/scene',
+                      name: { 'en-US': sceneName } },
       };
     }
-
-    // ── Statement attempted — tour ────────────────────────────────────────
-    sendStatement({
-      actor:  buildActor(),
-      verb: {
-        id:      'http://adlnet.gov/expapi/verbs/attempted',
-        display: { 'it-IT': 'avviato', 'en-US': 'attempted' },
-      },
-      object: {
-        objectType: 'Activity',
-        id: activityId,
-        definition: {
-          type: 'https://w3id.org/xapi/virtual-reality/activity-type/360-image',
-          name: { 'en-US': title },
-        },
-      },
-      context: buildTourContext(),
-    });
 
     // ── Cambio scena ──────────────────────────────────────────────────────
     function onSceneChange(sceneId, sceneName) {
       if (!sceneId) return;
-      if (currentScene && currentScene.id === sceneId) return; // dedup
+      if (currentScene && currentScene.id === sceneId) return;
 
-      // Completa scena precedente
       if (currentScene && sceneTimer) {
         var elapsed = sceneTimer.stop();
         sendStatement({
           actor: buildActor(),
-          verb: {
-            id:      'http://adlnet.gov/expapi/verbs/completed',
-            display: { 'it-IT': 'completato', 'en-US': 'completed' },
-          },
+          verb: { id: 'http://adlnet.gov/expapi/verbs/completed',
+                  display: { 'it-IT': 'completato', 'en-US': 'completed' } },
           object: buildSceneObject(currentScene.id, currentScene.name),
           result: { completion: true, duration: isoDuration(elapsed) },
           context: buildTourContext(),
@@ -963,17 +917,14 @@
         log('VirtualTour: completed', currentScene.name, isoDuration(elapsed));
       }
 
-      // Apri nuova scena
       sceneCount++;
       currentScene = { id: sceneId, name: sceneName };
       sceneTimer   = new Timer();
 
       sendStatement({
         actor: buildActor(),
-        verb: {
-          id:      'http://adlnet.gov/expapi/verbs/attempted',
-          display: { 'it-IT': 'avviato', 'en-US': 'attempted' },
-        },
+        verb: { id: 'http://adlnet.gov/expapi/verbs/attempted',
+                display: { 'it-IT': 'avviato', 'en-US': 'attempted' } },
         object: buildSceneObject(sceneId, sceneName),
         context: buildTourContext(),
       });
@@ -989,10 +940,8 @@
         var lastTime = sceneTimer.stop();
         sendStatement({
           actor: buildActor(),
-          verb: {
-            id:      'http://adlnet.gov/expapi/verbs/completed',
-            display: { 'it-IT': 'completato', 'en-US': 'completed' },
-          },
+          verb: { id: 'http://adlnet.gov/expapi/verbs/completed',
+                  display: { 'it-IT': 'completato', 'en-US': 'completed' } },
           object: buildSceneObject(currentScene.id, currentScene.name),
           result: { completion: true, duration: isoDuration(lastTime) },
           context: buildTourContext(),
@@ -1002,25 +951,13 @@
       var totalTime = tourTimer.stop();
       sendStatement({
         actor: buildActor(),
-        verb: {
-          id:      'http://adlnet.gov/expapi/verbs/experienced',
-          display: { 'it-IT': 'esplorato', 'en-US': 'experienced' },
-        },
-        object: {
-          objectType: 'Activity',
-          id: activityId,
-          definition: {
-            type: 'https://w3id.org/xapi/virtual-reality/activity-type/360-image',
-            name: { 'en-US': title },
-          },
-        },
-        result: {
-          completion: true,
-          duration:   isoDuration(totalTime),
-          extensions: {
-            'https://h5p-xapi.cartesiani.it/extensions/scenes-visited': sceneCount,
-          },
-        },
+        verb: { id: 'http://adlnet.gov/expapi/verbs/experienced',
+                display: { 'it-IT': 'esplorato', 'en-US': 'experienced' } },
+        object: { objectType: 'Activity', id: activityId,
+                  definition: { type: 'https://w3id.org/xapi/virtual-reality/activity-type/360-image',
+                                name: { 'en-US': title } } },
+        result: { completion: true, duration: isoDuration(totalTime),
+                  extensions: { 'https://h5p-xapi.cartesiani.it/extensions/scenes-visited': sceneCount } },
         context: buildTourContext(),
       });
       log('VirtualTour: experienced finale', isoDuration(totalTime), '| scene:', sceneCount);
@@ -1031,61 +968,63 @@
         btn.style.background = 'rgba(30,130,60,0.9)';
         btn.disabled = true;
         setTimeout(function () {
-          btn.style.transition = 'opacity .5s';
-          btn.style.opacity = '0';
+          btn.style.transition = 'opacity .5s'; btn.style.opacity = '0';
           setTimeout(function () { btn.remove(); }, 550);
         }, 1500);
       }
     }
 
-    // ── Helper statement hotspot ──────────────────────────────────────────
+    // ── Helper hotspot ────────────────────────────────────────────────────
     function sendHotspotStatement(intId, intName) {
       intName = (intName || 'Interazione').trim().substring(0, 100);
       sendStatement({
         actor: buildActor(),
-        verb: {
-          id:      'http://adlnet.gov/expapi/verbs/interacted',
-          display: { 'it-IT': 'interagito', 'en-US': 'interacted' },
-        },
+        verb: { id: 'http://adlnet.gov/expapi/verbs/interacted',
+                display: { 'it-IT': 'interagito', 'en-US': 'interacted' } },
         object: {
           objectType: 'Activity',
           id: activityId + '/scene/' + encodeURIComponent(currentScene ? currentScene.id : 'default')
               + '/hotspot/' + encodeURIComponent(String(intId).substring(0, 50)),
-          definition: {
-            type: 'http://adlnet.gov/expapi/activities/interaction',
-            name: { 'en-US': intName },
-          },
+          definition: { type: 'http://adlnet.gov/expapi/activities/interaction',
+                        name: { 'en-US': intName } },
         },
         result: { duration: sceneTimer ? sceneTimer.isoElapsed() : 'PT0S' },
         context: buildTourContext(),
       });
     }
 
+    // ── Statement attempted — tour ────────────────────────────────────────
+    sendStatement({
+      actor: buildActor(),
+      verb: { id: 'http://adlnet.gov/expapi/verbs/attempted',
+              display: { 'it-IT': 'avviato', 'en-US': 'attempted' } },
+      object: { objectType: 'Activity', id: activityId,
+                definition: { type: 'https://w3id.org/xapi/virtual-reality/activity-type/360-image',
+                              name: { 'en-US': title } } },
+      context: buildTourContext(),
+    });
+
     // ── Bottone Exit tour ─────────────────────────────────────────────────
     setTimeout(function () {
       if (document.getElementById('h5pxapi-tour-btn')) return;
       var btn = document.createElement('button');
-      btn.id  = 'h5pxapi-tour-btn';
+      btn.id = 'h5pxapi-tour-btn';
       btn.textContent = '⊗ Exit tour';
       btn.style.cssText = [
         'position:fixed', 'bottom:20px', 'right:20px', 'z-index:99999',
         'background:rgba(0,0,0,0.70)', 'color:#fff', 'border:none',
         'border-radius:8px', 'padding:10px 18px', 'font-size:13px',
         'font-weight:600', 'cursor:pointer', 'font-family:sans-serif',
-        'letter-spacing:.3px', 'box-shadow:0 2px 8px rgba(0,0,0,.3)',
-        'transition:background .2s',
+        'box-shadow:0 2px 8px rgba(0,0,0,.3)',
       ].join(';');
       btn.onmouseover = function () { this.style.background = 'rgba(0,0,0,0.88)'; };
       btn.onmouseout  = function () { this.style.background = 'rgba(0,0,0,0.70)'; };
       btn.onclick = function () {
         sendTourCompleted();
         setTimeout(function () {
-          if (window.history.length > 1) {
-            window.history.back();
-          } else {
-            try { window.close(); } catch(e) {}
-            window.location.href = cfg.homepage || window.location.origin;
-          }
+          if (window.history.length > 1) { window.history.back(); }
+          else { try { window.close(); } catch(e) {}
+                 window.location.href = cfg.homepage || window.location.origin; }
         }, 1800);
       };
       document.body.appendChild(btn);
@@ -1095,228 +1034,154 @@
     window.addEventListener('beforeunload', sendTourCompleted);
     instance.on('destroy', sendTourCompleted);
 
-    // ── APPROCCIO 1: eventi H5P sull'istanza ─────────────────────────────
-    // Proviamo tutti i possibili nomi di evento di ThreeImage
-    ['navigatedTo', 'navigated', 'changedScene', 'sceneChanged',
-     'changeScene', 'goToScene', 'sceneLoaded'].forEach(function (evName) {
-      instance.on(evName, function (event) {
-        var data      = event.data || {};
-        var sceneId   = data.sceneId || data.id || data.scene || data.nextSceneId;
-        var sceneName = (sceneId && scenesById[sceneId]) || data.title || data.name || ('Scena ' + sceneId);
-        if (sceneId) {
-          log('VirtualTour: evento H5P', evName, '→', sceneId);
-          onSceneChange(sceneId, sceneName);
+    // ── STRATEGIA 1: intercetta instance.trigger ──────────────────────────
+    // Patchiamo il metodo trigger dell'istanza per vedere TUTTI gli eventi
+    // che H5P.ThreeImage emette internamente — incluso quello di navigazione.
+    // In debug mode logga tutto; in produzione filtra solo gli eventi utili.
+    if (typeof instance.trigger === 'function') {
+      var origTrigger = instance.trigger.bind(instance);
+      instance.trigger = function (eventName, eventData) {
+        if (DEBUG) {
+          log('VirtualTour trigger:', eventName,
+              (eventData && typeof eventData === 'object') ? JSON.stringify(eventData).substring(0, 120) : eventData);
         }
-      });
-    });
+        // Intercetta eventi di navigazione scena
+        var data    = (eventData && typeof eventData === 'object') ? eventData : {};
+        var sceneId = data.sceneId || data.nextSceneId || data.id || data.scene || null;
 
-    // ── APPROCCIO 2: xAPI nativi da ThreeImage ────────────────────────────
-    // H5P.ThreeImage invia statement xAPI per le visite alle scene.
-    // Li intercettiamo nel dispatcher PRIMA del pass-through per aggiornare
-    // il nostro stato interno senza duplicare lo statement al LRS.
-    var tourSceneIds = Object.keys(scenesById);
-    H5P.externalDispatcher.on('xAPI', function (event) {
-      var stmt = event.data && event.data.statement;
-      if (!stmt || !stmt.object) return;
+        if (sceneId && scenesById[sceneId] !== undefined) {
+          onSceneChange(sceneId, scenesById[sceneId]);
+        }
 
-      // Verifica che lo statement venga da questa istanza ThreeImage
-      var objId = stmt.object.id || '';
-      var isFromThisTour = objId.indexOf('h5p-local-content-id=' + instance.contentId) !== -1
-                        || objId.indexOf('id=' + instance.contentId) !== -1;
+        return origTrigger.call(instance, eventName, eventData);
+      };
+      log('VirtualTour: instance.trigger patched — tutti gli eventi verranno loggati');
+    }
 
-      // Estrai eventuale subContentId dall'object ID
-      var subMatch = objId.match(/subContentId=([a-f0-9-]+)/i);
-      var subId    = subMatch ? subMatch[1] : null;
-
-      // Se il subContentId è uno dei nostri scene ID, è una visita di scena
-      if (subId && scenesById[subId] !== undefined) {
-        log('VirtualTour: xAPI nativo per scena', subId);
-        onSceneChange(subId, scenesById[subId]);
-        return; // già gestito — il pass-through manderà comunque lo statement originale
-      }
-    });
-
-    // ── APPROCCIO 3: intercetta click nel DOM ─────────────────────────────
-    // Intercettiamo i click in capture phase per catturare navigazione e info
-    // prima che H5P li gestisca internamente.
-    // Usiamo un setTimeout per permettere al DOM di ThreeImage di renderizzarsi.
-    setTimeout(function () {
-      document.addEventListener('click', function (e) {
-        var el    = e.target;
-        var depth = 0;
-
-        while (el && el !== document.body && depth < 12) {
-          var cls  = (typeof el.className === 'string') ? el.className : '';
-          var tag  = (el.tagName || '').toLowerCase();
-
-          // ── Navigazione tra scene ──────────────────────────────────────
-          // H5P.ThreeImage mette data-scene-id o data-target sugli hotspot di navigazione
-          var sceneId = el.getAttribute('data-scene-id')
-                     || el.getAttribute('data-target-scene')
-                     || el.getAttribute('data-navigate-to-scene')
-                     || el.getAttribute('data-scene');
-
-          if (!sceneId) {
-            // Cerca anche in classi tipo "go-to-scene-SCENEID"
-            var clsMatch = cls.match(/go-to-scene-([a-f0-9-]+)/i);
-            if (clsMatch) sceneId = clsMatch[1];
+    // ── STRATEGIA 2: intercetta H5P.setUserData ───────────────────────────
+    // H5P.ThreeImage chiama H5P.setUserData() per persistere la scena corrente.
+    // È il motivo per cui al refresh si torna all'ultima scena visitata.
+    // Intercettando questa chiamata catturiamo il cambio di scena in modo affidabile.
+    if (typeof H5P.setUserData === 'function') {
+      var origSetUserData = H5P.setUserData;
+      H5P.setUserData = function (contentId, stateKey, userData, options) {
+        // Filtra solo le chiamate per questa istanza
+        if (String(contentId) === String(instance.contentId)) {
+          if (DEBUG) {
+            log('VirtualTour setUserData:', stateKey, JSON.stringify(userData).substring(0, 200));
           }
-
-          if (sceneId && scenesById[sceneId] !== undefined) {
-            // Aspetta 150ms che H5P aggiorni il suo stato interno
-            setTimeout(function (sid) {
-              return function () {
-                onSceneChange(sid, scenesById[sid] || ('Scena ' + sid));
-              };
-            }(sceneId), 150);
-            log('VirtualTour: click su navigazione DOM →', sceneId);
-            break;
-          }
-
-          // Classi di navigazione senza data-scene-id esplicito
-          if (cls.match(/navigate|go-to-scene|scene-nav|scene-link|scene-button/i) &&
-              !cls.match(/info|interaction|popup/i)) {
-            // Prova a trovare il scene-id risalendo il DOM
-            var parent = el;
-            while (parent && !sceneId && parent !== document.body) {
-              sceneId = parent.getAttribute('data-scene-id')
-                     || parent.getAttribute('data-target-scene');
-              parent = parent.parentElement;
+          // La scena corrente è tipicamente salvata in uno stato con chiave
+          // "state" o simile. Il valore è un oggetto con currentSceneId o simile.
+          var state = userData;
+          if (state && typeof state === 'object') {
+            var sceneId = state.currentSceneId
+                       || state.sceneId
+                       || state.currentScene
+                       || state.scene
+                       || null;
+            // Se non è un campo diretto, cerca ricorsivamente
+            if (!sceneId) {
+              var str = JSON.stringify(state);
+              var match = str.match(/"(?:currentSceneId|sceneId|currentScene|scene)"\s*:\s*"([^"]+)"/);
+              if (match) sceneId = match[1];
             }
             if (sceneId && scenesById[sceneId] !== undefined) {
-              setTimeout(function (sid) {
-                return function () { onSceneChange(sid, scenesById[sid] || ('Scena ' + sid)); };
-              }(sceneId), 150);
-              log('VirtualTour: click navigazione (classe) →', sceneId);
+              log('VirtualTour: scena rilevata via setUserData →', sceneId);
+              onSceneChange(sceneId, scenesById[sceneId]);
             }
-            break;
           }
-
-          // ── Info / interazioni hotspot ─────────────────────────────────
-          // Classe tipica degli hotspot interattivi in H5P ThreeImage
-          if (cls.match(/interaction|hotspot|info|h5p-three-image-interaction/i) &&
-              !cls.match(/navigate|scene-nav/i)) {
-            var label = el.getAttribute('aria-label')
-                     || el.getAttribute('title')
-                     || el.getAttribute('data-label')
-                     || (el.querySelector && el.querySelector('[class*="title"],[class*="label"]')
-                         ? el.querySelector('[class*="title"],[class*="label"]').textContent : '')
-                     || cls.split(' ')[0];
-            label = (label || 'Interazione').trim();
-            log('VirtualTour: click su hotspot info →', label);
-            sendHotspotStatement(el.id || label, label);
-            break;
-          }
-
-          el = el.parentElement;
-          depth++;
         }
-      }, true); // capture phase
+        return origSetUserData.apply(H5P, arguments);
+      };
+      log('VirtualTour: H5P.setUserData patched');
+    }
 
-      // ── MutationObserver per popup info ───────────────────────────────
-      // Quando H5P apre un dialog/popup, aggiungiamo un elemento al DOM.
-      // Usiamo selettori molto ampi per coprire tutte le versioni.
-      var sentPopups = {};
-      var popupObserver = new MutationObserver(function (mutations) {
+    // ── STRATEGIA 3: intercetta H5P.getUserData ───────────────────────────
+    // Alcune versioni leggono lo stato invece di scriverlo. Patchammo anche questo.
+    if (typeof H5P.getUserData === 'function') {
+      var origGetUserData = H5P.getUserData;
+      H5P.getUserData = function (contentId, stateKey, done, subId) {
+        return origGetUserData.call(H5P, contentId, stateKey, function (err, data) {
+          if (String(contentId) === String(instance.contentId) && DEBUG) {
+            log('VirtualTour getUserData:', stateKey, JSON.stringify(data).substring(0, 200));
+          }
+          if (done) done(err, data);
+        }, subId);
+      };
+    }
+
+    // ── STRATEGIA 4: MutationObserver — cambio overlay interazioni ────────
+    // Quando la scena cambia, H5P.ThreeImage sostituisce gli hotspot HTML
+    // nell'overlay. Rileviamo questo cambio e deduciamo la nuova scena
+    // confrontando i subContentId degli hotspot con i nostri params.
+    setTimeout(function () {
+      // Costruisci mappa subContentId → sceneId dai params
+      var subContentToScene = {};
+      ((instance.params && instance.params.scenes) || []).forEach(function (scene) {
+        ((scene.interactions) || []).forEach(function (interaction) {
+          if (interaction.id || interaction.subContentId) {
+            subContentToScene[interaction.id || interaction.subContentId] = scene.sceneId;
+          }
+        });
+      });
+
+      var overlayObserver = new MutationObserver(function (mutations) {
         mutations.forEach(function (mutation) {
+          // Cerca attributi data-* sugli elementi aggiunti che contengano scene IDs
           mutation.addedNodes.forEach(function (node) {
             if (node.nodeType !== 1) return;
             var cls = (typeof node.className === 'string') ? node.className : '';
 
-            // Controlla se è un popup/dialog di H5P
+            // ── Popup info ────────────────────────────────────────────────
             var isPopup = cls.indexOf('h5p') !== -1 && (
-              cls.indexOf('popup')   !== -1 ||
-              cls.indexOf('dialog')  !== -1 ||
-              cls.indexOf('overlay') !== -1 ||
-              cls.indexOf('modal')   !== -1 ||
-              cls.indexOf('display') !== -1 ||
-              node.getAttribute('role') === 'dialog' ||
-              node.getAttribute('aria-modal') === 'true'
+              cls.indexOf('popup') !== -1 || cls.indexOf('dialog') !== -1 ||
+              cls.indexOf('display') !== -1 || cls.indexOf('overlay') !== -1 ||
+              node.getAttribute('role') === 'dialog'
             );
-
-            if (!isPopup) return;
-
-            // Cerca il titolo nel popup
-            var titleEl  = node.querySelector('h2,h3,h4,[class*="title"],[class*="header"],[class*="label"]');
-            var popupName = titleEl ? titleEl.textContent.trim() : '';
-            if (!popupName) {
-              popupName = node.getAttribute('aria-label') || cls.split(' ')[0] || 'Info popup';
+            if (isPopup) {
+              var titleEl   = node.querySelector('h2,h3,h4,[class*="title"],[class*="header"]');
+              var popupName = (titleEl ? titleEl.textContent.trim() : '') ||
+                              node.getAttribute('aria-label') || 'Info';
+              popupName = popupName.substring(0, 100);
+              log('VirtualTour: popup aperto →', popupName);
+              sendHotspotStatement('popup:' + popupName, popupName);
             }
-            popupName = popupName.substring(0, 100);
 
-            var popupKey = (currentScene ? currentScene.id : 'root') + ':' + popupName;
-            if (sentPopups[popupKey]) return;
-            sentPopups[popupKey] = true;
-
-            setTimeout(function () { delete sentPopups[popupKey]; }, 2000);
-
-            log('VirtualTour: popup rilevato →', popupName, '| classe:', cls);
-            sendHotspotStatement('popup:' + popupName, popupName);
+            // ── Hotspot di navigazione scena ──────────────────────────────
+            // Cerca data-scene-id in qualsiasi attributo del nodo o figli
+            var allEls = [node].concat(Array.prototype.slice.call(node.querySelectorAll('*')));
+            allEls.forEach(function (el) {
+              var sceneId = el.getAttribute('data-scene-id')
+                         || el.getAttribute('data-scene')
+                         || el.getAttribute('data-target-scene');
+              if (sceneId && scenesById[sceneId] !== undefined) {
+                log('VirtualTour: hotspot scena trovato nel DOM →', sceneId);
+                // Aggiungi click listener direttamente sull'elemento
+                el.addEventListener('click', function () {
+                  setTimeout(function () {
+                    onSceneChange(sceneId, scenesById[sceneId]);
+                  }, 100);
+                }, { once: false });
+              }
+            });
           });
         });
       });
-      popupObserver.observe(document.body, { childList: true, subtree: true });
-      log('VirtualTour: MutationObserver popup attivo');
 
-    }, 1000); // attendi 1s che il DOM di ThreeImage sia pronto
+      overlayObserver.observe(document.body, { childList: true, subtree: true, attributes: true });
+      log('VirtualTour: MutationObserver overlay attivo');
 
-    // ── APPROCCIO 4: monkey-patch metodi dell'istanza ────────────────────
-    setTimeout(function () {
-      // Prova a patchare metodi noti di ThreeImage
-      var methods = ['setCurrentSceneId', 'navigateTo', 'goToScene',
-                     'changeScene', 'loadScene', 'showScene'];
-      methods.forEach(function (method) {
-        if (typeof instance[method] === 'function') {
-          var orig = instance[method].bind(instance);
-          instance[method] = function (sceneId) {
-            var result = orig.apply(this, arguments);
-            var sid = (typeof sceneId === 'string') ? sceneId
-                    : (sceneId && sceneId.sceneId) ? sceneId.sceneId : null;
-            if (sid && scenesById[sid] !== undefined) {
-              setTimeout(function () {
-                onSceneChange(sid, scenesById[sid] || ('Scena ' + sid));
-              }, 100);
-            }
-            log('VirtualTour: monkey-patch', method, '→', sid);
-            return result;
-          };
-          log('VirtualTour: monkey-patched', method);
-        }
-      });
-
-      // Prova anche sul prototipo
-      var proto = Object.getPrototypeOf(instance);
-      methods.forEach(function (method) {
-        if (proto && typeof proto[method] === 'function' && !instance.hasOwnProperty(method)) {
-          var orig = proto[method];
-          proto[method] = function (sceneId) {
-            var result = orig.apply(this, arguments);
-            var sid = (typeof sceneId === 'string') ? sceneId
-                    : (sceneId && sceneId.sceneId) ? sceneId.sceneId : null;
-            if (sid) {
-              setTimeout(function () {
-                onSceneChange(sid, scenesById[sid] || ('Scena ' + sid));
-              }, 100);
-            }
-            log('VirtualTour: proto monkey-patch', method, '→', sid);
-            return result;
-          };
-          log('VirtualTour: proto monkey-patched', method);
-        }
-      });
-    }, 600);
+    }, 1000);
 
     // ── Scena iniziale ────────────────────────────────────────────────────
     setTimeout(function () {
-      if (currentScene) return; // già rilevata
-      // Prova da params
-      var startId = instance.params && instance.params.startSceneId;
-      // Prova da proprietà istanza
-      if (!startId) startId = instance.currentSceneId || instance.currentScene;
-      // Prova prima scena nell'array
-      if (!startId && instance.params && instance.params.scenes && instance.params.scenes.length > 0) {
-        startId = instance.params.scenes[0].sceneId;
-      }
+      if (currentScene) return;
+      var startId = (instance.params && instance.params.startSceneId)
+                 || instance.currentSceneId
+                 || instance.currentScene
+                 || (instance.params && instance.params.scenes &&
+                     instance.params.scenes.length > 0 &&
+                     instance.params.scenes[0].sceneId);
       if (startId) {
         var startName = scenesById[startId] || ('Scena ' + startId);
         log('VirtualTour: scena iniziale →', startName);
@@ -1395,7 +1260,7 @@
   // ══════════════════════════════════════════════════════════════════════════
 
   function onReady() {
-    log('H5P xAPI Enhanced Tracker v1.3.4 — inizializzazione');
+    log('H5P xAPI Enhanced Tracker v1.3.5 — inizializzazione');
 
     H5P.externalDispatcher.on('xAPI', onNativeXAPI);
 

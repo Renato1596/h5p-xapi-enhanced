@@ -1,5 +1,5 @@
 /**
- * H5P xAPI Enhanced Tracker  —  tracker.js  v1.3.1
+ * H5P xAPI Enhanced Tracker  —  tracker.js  v1.3.2
  * ─────────────────────────────────────────────────────────────────────────────
  * Questo script viene caricato DENTRO il contesto H5P (iframe incluso).
  *
@@ -858,21 +858,18 @@
   function attachVirtualTourTracking(instance) {
     log('VirtualTour: attach tracking a contentId', instance.contentId);
 
-    var activityId   = getActivityId(instance);
-    var title        = getContentTitle(instance);
-    var pageUrl      = getPageUrl();
-    var pageTitle    = document.title || pageUrl;
-
-    // ── Timer sessione globale ─────────────────────────────────────────────
-    var tourTimer    = new Timer();
-    var sceneCount   = 0;
+    var activityId    = getActivityId(instance);
+    var title         = getContentTitle(instance);
+    var pageUrl       = getPageUrl();
+    var pageTitle     = document.title || pageUrl;
+    var tourTimer     = new Timer();
+    var sceneCount    = 0;
     var completedSent = false;
-
-    // ── Timer per la scena corrente ────────────────────────────────────────
-    var currentScene  = null;  // { id, name }
+    var currentScene  = null;
     var sceneTimer    = null;
+    var lastPolledScene = null;
 
-    // ── Context comune ────────────────────────────────────────────────────
+    // ── Context helpers ───────────────────────────────────────────────────
     function buildTourContext() {
       return {
         contextActivities: {
@@ -909,7 +906,28 @@
       };
     }
 
-    // ── Statement "attempted" — apertura del Virtual Tour ─────────────────
+    // ── Helper: nome scena dai params ─────────────────────────────────────
+    function getSceneNameFromParams(sceneId) {
+      var scenes = instance.params && instance.params.scenes;
+      if (!scenes) return null;
+      for (var i = 0; i < scenes.length; i++) {
+        if (scenes[i].sceneId === sceneId) {
+          return scenes[i].scenename || scenes[i].sceneDescription || scenes[i].title || null;
+        }
+      }
+      return null;
+    }
+
+    // ── Helper: scena corrente dall'istanza ───────────────────────────────
+    function getInstanceCurrentScene() {
+      if (instance.currentScene)           return instance.currentScene;
+      if (instance.currentSceneId)         return instance.currentSceneId;
+      if (instance.scene && instance.scene.id) return instance.scene.id;
+      if (instance.child && instance.child.currentScene) return instance.child.currentScene;
+      return null;
+    }
+
+    // ── Statement attempted — tour ────────────────────────────────────────
     sendStatement({
       actor:  buildActor(),
       verb: {
@@ -926,40 +944,32 @@
       },
       context: buildTourContext(),
     });
-    log('VirtualTour: attempted inviato');
 
-    // ── Gestione cambio scena ──────────────────────────────────────────────
-    // Chiamata ogni volta che rileviamo un cambio di scena (da evento o polling)
+    // ── Cambio scena ──────────────────────────────────────────────────────
     function onSceneChange(sceneId, sceneName) {
-      // Deduplicazione — ignora se è la stessa scena
-      if (currentScene && currentScene.id === sceneId) return;
+      if (currentScene && currentScene.id === sceneId) return; // dedup
 
-      var prevScene = currentScene;
-      var prevTimer = sceneTimer;
-
-      // 1. Chiudi la scena precedente con "completed" + durata
-      if (prevScene && prevTimer) {
-        var timeInScene = prevTimer.stop();
+      // Completa scena precedente
+      if (currentScene && sceneTimer) {
+        var elapsed = sceneTimer.stop();
         sendStatement({
           actor: buildActor(),
           verb: {
             id:      'http://adlnet.gov/expapi/verbs/completed',
             display: { 'it-IT': 'completato', 'en-US': 'completed' },
           },
-          object: buildSceneObject(prevScene.id, prevScene.name),
-          result: {
-            completion: true,
-            duration:   isoDuration(timeInScene),
-          },
+          object: buildSceneObject(currentScene.id, currentScene.name),
+          result: { completion: true, duration: isoDuration(elapsed) },
           context: buildTourContext(),
         });
-        log('VirtualTour: completed scena', prevScene.name, '|', isoDuration(timeInScene));
+        log('VirtualTour: completed', currentScene.name, isoDuration(elapsed));
       }
 
-      // 2. Apri la nuova scena con "attempted"
+      // Apri nuova scena
       sceneCount++;
       currentScene = { id: sceneId, name: sceneName };
       sceneTimer   = new Timer();
+      lastPolledScene = sceneId;
 
       sendStatement({
         actor: buildActor(),
@@ -970,17 +980,18 @@
         object: buildSceneObject(sceneId, sceneName),
         context: buildTourContext(),
       });
-      log('VirtualTour: attempted scena', sceneName, '| scena n.', sceneCount);
+      log('VirtualTour: attempted scena', sceneName, 'n.', sceneCount);
     }
 
-    // ── Statement "experienced" finale — completamento del tour ───────────
+    // ── Completamento tour ────────────────────────────────────────────────
     function sendTourCompleted() {
       if (completedSent) return;
       completedSent = true;
+      clearInterval(pollInterval);
 
-      // Chiudi anche l'ultima scena
+      // Chiudi ultima scena
       if (currentScene && sceneTimer) {
-        var lastSceneTime = sceneTimer.stop();
+        var lastTime = sceneTimer.stop();
         sendStatement({
           actor: buildActor(),
           verb: {
@@ -988,14 +999,12 @@
             display: { 'it-IT': 'completato', 'en-US': 'completed' },
           },
           object: buildSceneObject(currentScene.id, currentScene.name),
-          result: {
-            completion: true,
-            duration:   isoDuration(lastSceneTime),
-          },
+          result: { completion: true, duration: isoDuration(lastTime) },
           context: buildTourContext(),
         });
       }
 
+      // Experienced finale
       var totalTime = tourTimer.stop();
       sendStatement({
         actor: buildActor(),
@@ -1020,70 +1029,88 @@
         },
         context: buildTourContext(),
       });
-      log('VirtualTour: experienced inviato | durata:', isoDuration(totalTime), '| scene:', sceneCount);
+      log('VirtualTour: experienced finale', isoDuration(totalTime), '| scene:', sceneCount);
+
+      // Feedback visivo sul bottone
+      var btn = document.getElementById('h5pxapi-tour-btn');
+      if (btn) {
+        btn.textContent = '✓ Tour completato';
+        btn.style.background = 'rgba(30,130,60,0.9)';
+        btn.disabled = true;
+        setTimeout(function () {
+          btn.style.transition = 'opacity .5s';
+          btn.style.opacity = '0';
+          setTimeout(function () { btn.remove(); }, 550);
+        }, 1500);
+      }
     }
 
-    // ── Bottone "Completa tour" ────────────────────────────────────────────
-    // Iniettato nel container H5P — unico modo affidabile per rilevare
-    // che l'utente ha finito di esplorare il tour (non c'è un evento nativo)
+    // ── Bottone "Completa tour" — appendito a document.body ───────────────
+    // Usiamo document.body (non instance.$container) per evitare
+    // problemi di posizionamento che dipendono dalla struttura del DOM H5P
     setTimeout(function () {
-      var container = instance.$container && instance.$container[0];
-      if (!container) return;
+      if (document.getElementById('h5pxapi-tour-btn')) return; // già presente
 
       var btn = document.createElement('button');
-      btn.id  = 'h5pxapi-complete-tour';
+      btn.id  = 'h5pxapi-tour-btn';
       btn.textContent = '✓ Completa tour';
       btn.style.cssText = [
-        'position:absolute', 'bottom:16px', 'right:16px', 'z-index:9999',
-        'background:rgba(0,0,0,0.65)', 'color:#fff', 'border:none',
-        'border-radius:6px', 'padding:8px 16px', 'font-size:13px',
-        'cursor:pointer', 'font-family:sans-serif', 'letter-spacing:.3px',
+        'position:fixed', 'bottom:20px', 'right:20px', 'z-index:99999',
+        'background:rgba(0,0,0,0.70)', 'color:#fff', 'border:none',
+        'border-radius:8px', 'padding:10px 18px', 'font-size:13px',
+        'font-weight:600', 'cursor:pointer', 'font-family:sans-serif',
+        'letter-spacing:.3px', 'box-shadow:0 2px 8px rgba(0,0,0,.3)',
+        'transition:background .2s',
       ].join(';');
 
-      btn.onmouseover = function () { this.style.background = 'rgba(0,0,0,0.85)'; };
-      btn.onmouseout  = function () { this.style.background = 'rgba(0,0,0,0.65)'; };
+      btn.onmouseover = function () { this.style.background = 'rgba(0,0,0,0.88)'; };
+      btn.onmouseout  = function () { this.style.background = 'rgba(0,0,0,0.70)'; };
+      btn.onclick     = sendTourCompleted;
 
-      btn.onclick = function () {
-        sendTourCompleted();
-        btn.style.background = 'rgba(30,130,60,0.85)';
-        btn.textContent = '✓ Tour completato';
-        btn.disabled = true;
-        setTimeout(function () { btn.style.opacity = '0'; btn.style.transition = 'opacity .5s'; }, 1500);
-        setTimeout(function () { btn.remove(); }, 2100);
-      };
-
-      // Assicura che il container abbia position:relative per il posizionamento
-      var pos = window.getComputedStyle(container).position;
-      if (pos === 'static') container.style.position = 'relative';
-      container.appendChild(btn);
-      log('VirtualTour: bottone Completa tour iniettato');
+      document.body.appendChild(btn);
+      log('VirtualTour: bottone Completa tour aggiunto a document.body');
     }, 800);
 
-    // Fallback beforeunload (es. chiusura tab)
+    // ── Intercetta link esterni come trigger di fine tour ─────────────────
+    // In H5P Virtual Tour puoi aggiungere hotspot "External Link".
+    // Intercettando quel click mandiamo gli statement finali prima della navigazione.
+    setTimeout(function () {
+      document.addEventListener('click', function (e) {
+        var link = e.target.closest('a[href^="http"]');
+        if (!link) return;
+        var href = link.getAttribute('href') || '';
+        // Controlla che il link sia un hotspot del virtual tour (non navigation interna)
+        if (href.indexOf(window.location.origin) !== -1) return;
+        // È un link esterno — trattiamolo come fine tour
+        if (!completedSent) {
+          e.preventDefault();
+          sendTourCompleted();
+          // Naviga dopo un breve delay per permettere l'invio degli statement
+          setTimeout(function () { window.open(href, link.target || '_blank'); }, 400);
+        }
+      }, true); // capture phase
+    }, 1000);
+
+    // ── Fallback beforeunload ─────────────────────────────────────────────
     window.addEventListener('beforeunload', sendTourCompleted);
     instance.on('destroy', sendTourCompleted);
 
-    // ── Intercettazione eventi di navigazione ─────────────────────────────
-    // H5P.ThreeImage può usare nomi diversi a seconda della versione
-    var navEvents = ['navigatedTo', 'navigated', 'sceneChanged', 'changeScene'];
-    navEvents.forEach(function (evName) {
+    // ── Event listener su tutti i possibili nomi di evento ────────────────
+    ['navigatedTo', 'navigated', 'sceneChanged', 'changeScene'].forEach(function (evName) {
       instance.on(evName, function (event) {
         var data      = event.data || {};
-        var sceneId   = data.sceneId   || data.id    || data.scene || 'unknown';
+        var sceneId   = data.sceneId || data.id || data.scene || 'unknown';
         var sceneName = data.sceneName || data.title || data.label || data.name
-                        || getSceneNameFromParams(sceneId)
-                        || ('Scena ' + sceneId);
-        log('VirtualTour: evento', evName, '→', sceneId);
+                        || getSceneNameFromParams(sceneId) || ('Scena ' + sceneId);
         onSceneChange(sceneId, sceneName);
       });
     });
 
-    // ── Hotspot cliccati ──────────────────────────────────────────────────
+    // ── Hotspot interattivi ───────────────────────────────────────────────
     instance.on('interact', function (event) {
-      var data          = event.data || {};
-      var interactionId = data.interactionId || data.id || 'unknown';
-      var interactName  = data.label || data.title || ('Hotspot ' + interactionId);
-
+      var data         = event.data || {};
+      var intId        = data.interactionId || data.id || 'unknown';
+      var intName      = data.label || data.title || ('Hotspot ' + intId);
       sendStatement({
         actor: buildActor(),
         verb: {
@@ -1093,76 +1120,48 @@
         object: {
           objectType: 'Activity',
           id: activityId + '/scene/' + encodeURIComponent(currentScene ? currentScene.id : 'default')
-              + '/hotspot/' + encodeURIComponent(interactionId),
+              + '/hotspot/' + encodeURIComponent(intId),
           definition: {
             type: 'http://adlnet.gov/expapi/activities/interaction',
-            name: { 'en-US': interactName },
+            name: { 'en-US': intName },
           },
         },
-        result: {
-          duration: sceneTimer ? sceneTimer.isoElapsed() : 'PT0S',
-        },
+        result: { duration: sceneTimer ? sceneTimer.isoElapsed() : 'PT0S' },
         context: buildTourContext(),
       });
-      log('VirtualTour: hotspot', interactName);
     });
 
-    // ── Polling fallback — rileva cambio scena ogni 500ms ─────────────────
-    // Usato quando gli eventi non vengono emessi (dipende dalla versione H5P)
-    var lastPolledScene = null;
-    var pollInterval = setInterval(function () {
-      var sceneId = getInstanceCurrentScene(instance);
-      if (!sceneId || sceneId === lastPolledScene) return;
-      lastPolledScene = sceneId;
-      var sceneName = getSceneNameFromParams(sceneId) || ('Scena ' + sceneId);
-      log('VirtualTour: polling rilevato cambio scena →', sceneId);
-      onSceneChange(sceneId, sceneName);
-    }, 500);
-
-    // Ferma il polling quando l'istanza viene distrutta
-    instance.on('destroy', function () { clearInterval(pollInterval); });
-
-    // ── Monkey-patch navigateTo (fallback aggiuntivo) ─────────────────────
+    // ── Monkey-patch navigateTo ───────────────────────────────────────────
     setTimeout(function () {
       if (typeof instance.navigateTo === 'function') {
-        var origNav = instance.navigateTo.bind(instance);
+        var orig = instance.navigateTo.bind(instance);
         instance.navigateTo = function (sceneId) {
-          origNav(sceneId);
-          var sceneName = getSceneNameFromParams(sceneId) || ('Scena ' + sceneId);
-          onSceneChange(sceneId, sceneName);
+          orig(sceneId);
+          onSceneChange(sceneId, getSceneNameFromParams(sceneId) || ('Scena ' + sceneId));
         };
         log('VirtualTour: monkey-patched navigateTo');
       }
     }, 500);
 
-    // ── Helper: legge il nome di una scena dai params dell'istanza ─────────
-    function getSceneNameFromParams(sceneId) {
-      var scenes = instance.params && instance.params.scenes;
-      if (!scenes) return null;
-      for (var i = 0; i < scenes.length; i++) {
-        if (scenes[i].sceneId === sceneId) {
-          return scenes[i].scenename
-              || scenes[i].sceneDescription
-              || scenes[i].title
-              || null;
-        }
-      }
-      return null;
-    }
+    // ── Polling ogni 500ms ────────────────────────────────────────────────
+    var pollInterval = setInterval(function () {
+      var sceneId = getInstanceCurrentScene();
+      if (!sceneId || sceneId === lastPolledScene) return;
+      var sceneName = getSceneNameFromParams(sceneId) || ('Scena ' + sceneId);
+      onSceneChange(sceneId, sceneName);
+    }, 500);
 
-    // ── Helper: legge la scena corrente dall'istanza ───────────────────────
-    function getInstanceCurrentScene(inst) {
-      // Prova varie proprietà — dipende dalla versione di H5P.ThreeImage
-      if (inst.currentScene)              return inst.currentScene;
-      if (inst.currentSceneId)            return inst.currentSceneId;
-      if (inst.scene && inst.scene.id)    return inst.scene.id;
-      if (inst.params && inst.params.startSceneId && sceneCount === 0) {
-        return inst.params.startSceneId;
+    // ── Rileva scena iniziale dopo 600ms ──────────────────────────────────
+    // La scena di partenza non genera eventi — la rileviamo dopo l'init
+    setTimeout(function () {
+      var initSceneId = getInstanceCurrentScene()
+                      || (instance.params && instance.params.startSceneId);
+      if (initSceneId && !currentScene) {
+        var initName = getSceneNameFromParams(initSceneId) || ('Scena ' + initSceneId);
+        log('VirtualTour: scena iniziale rilevata →', initName);
+        onSceneChange(initSceneId, initName);
       }
-      // Prova a leggere dall'istanza figlio se esiste
-      if (inst.child && inst.child.currentScene) return inst.child.currentScene;
-      return null;
-    }
+    }, 600);
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1235,7 +1234,7 @@
   // ══════════════════════════════════════════════════════════════════════════
 
   function onReady() {
-    log('H5P xAPI Enhanced Tracker v1.3.1 — inizializzazione');
+    log('H5P xAPI Enhanced Tracker v1.3.2 — inizializzazione');
 
     H5P.externalDispatcher.on('xAPI', onNativeXAPI);
 

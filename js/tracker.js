@@ -1,5 +1,5 @@
 /**
- * H5P xAPI Enhanced Tracker  —  tracker.js  v1.2.1
+ * H5P xAPI Enhanced Tracker  —  tracker.js  v1.3.0
  * ─────────────────────────────────────────────────────────────────────────────
  * Questo script viene caricato DENTRO il contesto H5P (iframe incluso).
  *
@@ -198,14 +198,92 @@
   function getPageUrl() {
     if (_pageUrl) return _pageUrl;
     var isIframe = window.parent !== window;
-    if (isIframe && document.referrer) {
-      _pageUrl = document.referrer.split('?')[0].replace(/\/$/, '');
-    } else if (!isIframe) {
+    var referrer = document.referrer ? document.referrer.split('?')[0].replace(/\/$/, '') : '';
+
+    // Scarta i referrer che sono pagine admin WordPress (admin.php, admin-ajax.php ecc.)
+    // In quel caso l'H5P è aperto in anteprima dal backend — usiamo cfg.homepage come fallback
+    var isAdminReferrer = referrer.indexOf('/wp-admin') !== -1;
+
+    if (isIframe && referrer && !isAdminReferrer) {
+      _pageUrl = referrer;
+    } else if (!isIframe && window.location.href.indexOf('/wp-admin') === -1) {
       _pageUrl = window.location.href.split('?')[0].replace(/\/$/, '');
     } else {
       _pageUrl = cfg.homepage || window.location.origin;
     }
     return _pageUrl;
+  }
+
+  // ── Mappa libreria H5P → activity type IRI ───────────────────────────────
+  // Per i tipi senza URI standard ufficiale usiamo il dominio del plugin.
+  var H5P_ACTIVITY_TYPES = {
+    // Video
+    'H5P.InteractiveVideo': 'https://w3id.org/xapi/video/activity-type/video',
+    // Presentazione
+    'H5P.CoursePresentation': 'https://h5p-xapi.cartesiani.it/activity-type/presentation',
+    // Quiz e domande
+    'H5P.QuestionSet':        'https://h5p-xapi.cartesiani.it/activity-type/quiz',
+    'H5P.SingleChoiceSet':    'https://h5p-xapi.cartesiani.it/activity-type/single-choice-set',
+    'H5P.MultiChoice':        'http://adlnet.gov/expapi/activities/cmi.interaction',
+    'H5P.TrueFalse':          'http://adlnet.gov/expapi/activities/cmi.interaction',
+    'H5P.Blanks':             'http://adlnet.gov/expapi/activities/cmi.interaction',
+    'H5P.DragQuestion':       'http://adlnet.gov/expapi/activities/cmi.interaction',
+    'H5P.DragText':           'http://adlnet.gov/expapi/activities/cmi.interaction',
+    'H5P.MarkTheWords':       'http://adlnet.gov/expapi/activities/cmi.interaction',
+    // Mappe e tour
+    'H5P.GameMap':            'https://h5p-xapi.cartesiani.it/activity-type/game-map',
+    'H5P.ThreeImage':         'https://w3id.org/xapi/virtual-reality/activity-type/360-image',
+    // Contenuto generico
+    'H5P.InteractiveBook':    'https://h5p-xapi.cartesiani.it/activity-type/interactive-book',
+    'H5P.Column':             'https://h5p-xapi.cartesiani.it/activity-type/column',
+    'H5P.Summary':            'http://adlnet.gov/expapi/activities/assessment',
+    'H5P.Accordion':          'https://h5p-xapi.cartesiani.it/activity-type/accordion',
+    'H5P.Timeline':           'https://h5p-xapi.cartesiani.it/activity-type/timeline',
+    'H5P.ImageHotspots':      'https://h5p-xapi.cartesiani.it/activity-type/image-hotspots',
+    'H5P.Flashcards':         'https://h5p-xapi.cartesiani.it/activity-type/flashcards',
+    // Default fallback
+    '_default':               'http://adlnet.gov/expapi/activities/module',
+  };
+
+  // Restituisce il tipo corretto per un content ID H5P
+  function getActivityType(contentId) {
+    var cid = 'cid-' + contentId;
+    if (window.H5PIntegration && H5PIntegration.contents && H5PIntegration.contents[cid]) {
+      var library = H5PIntegration.contents[cid].library || '';
+      // library è tipo "H5P.ThreeImage 0.3" — prendiamo solo "H5P.ThreeImage"
+      var machineName = library.split(' ')[0];
+      return H5P_ACTIVITY_TYPES[machineName] || H5P_ACTIVITY_TYPES['_default'];
+    }
+    return H5P_ACTIVITY_TYPES['_default'];
+  }
+
+  // Decodifica entità HTML nelle stringhe di testo degli statement
+  // es. "l&#39;oggetto" → "l'oggetto"
+  function decodeHtmlEntities(str) {
+    if (!str || typeof str !== 'string') return str;
+    return str
+      .replace(/&amp;/g,  '&')
+      .replace(/&lt;/g,   '<')
+      .replace(/&gt;/g,   '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g,  "'")
+      .replace(/&apos;/g, "'")
+      .replace(/&#x27;/g, "'")
+      .replace(/&#x2F;/g, '/')
+      .replace(/&nbsp;/g, ' ');
+  }
+
+  // Applica decodeHtmlEntities ricorsivamente a tutti i valori stringa di un oggetto
+  function decodeEntitiesDeep(obj) {
+    if (!obj || typeof obj !== 'object') return decodeHtmlEntities(obj);
+    if (Array.isArray(obj)) return obj.map(decodeEntitiesDeep);
+    var result = {};
+    for (var key in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, key)) {
+        result[key] = decodeEntitiesDeep(obj[key]);
+      }
+    }
+    return result;
   }
 
   function isH5PEmbedUrl(id) {
@@ -307,6 +385,7 @@
 
     // grouping: aggiungi l'IV e la pagina WordPress come contesto più ampio
     var h5pId          = buildCleanId(contentId, null);
+    var activityType   = getActivityType(contentId);
     var existingOther  = (ca.grouping || []).filter(function (g) {
       return g.id && !isH5PEmbedUrl(g.id) && g.id !== h5pId && g.id !== pageUrl;
     });
@@ -316,7 +395,8 @@
         objectType: 'Activity',
         id: h5pId,
         definition: {
-          type: 'https://w3id.org/xapi/video/activity-type/video',
+          // Tipo corretto per ogni libreria H5P — non sempre "video"
+          type: activityType,
           name: { 'en-US': contentTitle },
         },
       },
@@ -325,7 +405,8 @@
         id: pageUrl,
         definition: {
           type: 'http://adlnet.gov/expapi/activities/module',
-          name: { 'en-US': pageTitle },
+          // Nome della pagina, non l'URL
+          name: { 'en-US': pageTitle !== pageUrl ? pageTitle : contentTitle },
         },
       },
     ].concat(existingOther);
@@ -356,6 +437,9 @@
     if (!stmt.actor || (!stmt.actor.mbox && !stmt.actor.account)) {
       stmt.actor = buildActor();
     }
+
+    // Decodifica entità HTML (es. apostrofi &#39; → ')
+    stmt = decodeEntitiesDeep(stmt);
 
     // Migliora la qualità dello statement
     stmt = fixStatement(stmt);
@@ -777,7 +861,86 @@
     var activityId    = getActivityId(instance);
     var title         = getContentTitle(instance);
     var currentScene  = null;
-    var sceneTimer    = null;  // Timer per la scena corrente
+    var sceneTimer    = null;
+    var sessionTimer  = new Timer();  // Timer per l'intera sessione del tour
+    var sceneCount    = 0;            // Numero di scene visitate
+
+    // ── Statement "attempted" — apertura del Virtual Tour ─────────────────
+    sendStatement({
+      actor:  buildActor(),
+      verb: {
+        id:      'http://adlnet.gov/expapi/verbs/attempted',
+        display: { 'it-IT': 'avviato', 'en-US': 'attempted' },
+      },
+      object: {
+        objectType: 'Activity',
+        id: activityId,
+        definition: {
+          type: 'https://w3id.org/xapi/virtual-reality/activity-type/360-image',
+          name: { 'en-US': title },
+        },
+      },
+      context: {
+        contextActivities: {
+          grouping: [{
+            objectType: 'Activity',
+            id: getPageUrl(),
+            definition: {
+              type: 'http://adlnet.gov/expapi/activities/module',
+              name: { 'en-US': document.title || getPageUrl() },
+            },
+          }],
+        },
+      },
+    });
+    log('VirtualTour: attempted inviato');
+
+    // ── Statement "completed" — quando l'utente lascia la pagina ──────────
+    function sendCompleted() {
+      if (sendCompleted._sent) return;
+      sendCompleted._sent = true;
+      var totalTime = sessionTimer.stop();
+      sendStatement({
+        actor:  buildActor(),
+        verb: {
+          id:      'http://adlnet.gov/expapi/verbs/experienced',
+          display: { 'it-IT': 'esplorato', 'en-US': 'experienced' },
+        },
+        object: {
+          objectType: 'Activity',
+          id: activityId,
+          definition: {
+            type: 'https://w3id.org/xapi/virtual-reality/activity-type/360-image',
+            name: { 'en-US': title },
+          },
+        },
+        result: {
+          completion: true,
+          duration:   isoDuration(totalTime),
+          extensions: {
+            'https://h5p-xapi.cartesiani.it/extensions/scenes-visited': sceneCount,
+          },
+        },
+        context: {
+          contextActivities: {
+            grouping: [{
+              objectType: 'Activity',
+              id: getPageUrl(),
+              definition: {
+                type: 'http://adlnet.gov/expapi/activities/module',
+                name: { 'en-US': document.title || getPageUrl() },
+              },
+            }],
+          },
+        },
+      });
+      log('VirtualTour: experienced inviato | durata:', isoDuration(totalTime), '| scene:', sceneCount);
+    }
+
+    // Invia "completed" quando l'utente lascia la pagina
+    window.addEventListener('beforeunload', sendCompleted);
+    // Invia anche se l'istanza viene distrutta (es. navigazione SPA)
+    instance.on('destroy', sendCompleted);
 
     function sendSceneNavigation(sceneId, sceneName) {
       // Ferma il timer della scena precedente
@@ -843,7 +1006,8 @@
       // Avvia il timer per la nuova scena
       currentScene = { id: sceneId, name: sceneName };
       sceneTimer   = new Timer();
-      log('VirtualTour: entrato in scena', sceneName);
+      sceneCount++;
+      log('VirtualTour: entrato in scena', sceneName, '| scene visitate:', sceneCount);
     }
 
     // Event listener
@@ -982,7 +1146,7 @@
   // ══════════════════════════════════════════════════════════════════════════
 
   function onReady() {
-    log('H5P xAPI Enhanced Tracker v1.2.1 — inizializzazione');
+    log('H5P xAPI Enhanced Tracker v1.3.0 — inizializzazione');
 
     H5P.externalDispatcher.on('xAPI', onNativeXAPI);
 

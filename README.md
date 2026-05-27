@@ -1,208 +1,177 @@
-# H5P xAPI Enhanced Tracker
+# H5P xAPI Enhanced Tracker — WordPress Plugin
 
-Plugin WordPress che aggiunge tracciamento xAPI **dettagliato** agli activity type H5P più avanzati.
-
----
-
-## Il problema (e perché questo plugin esiste)
-
-H5P invia statement xAPI nativamente, ma in modo molto limitato:
-
-| Content Type      | xAPI nativo | Cosa manca                                          |
-|-------------------|:-----------:|-----------------------------------------------------|
-| Interactive Video | ✅ parziale  | play, pause, seek, milestone 25/50/75%              |
-| Game Map          | ✅ parziale  | navigazione tra nodi/livelli                        |
-| Virtual Tour      | ✅ parziale  | navigazione tra scene, clic su hotspot              |
-
-Il tracciamento nativo si limita a `attempted`, `answered` (per le domande embedded), `completed`.  
-**Tutto il comportamento di navigazione e fruizione viene perso.**
+A WordPress plugin that adds **detailed xAPI tracking** to H5P content, sending rich statements to any LRS with a built-in admin settings page.
 
 ---
 
-## Architettura — perché lo script va dentro l'iframe
+## Prerequisites
 
-H5P in WordPress gira **dentro un `<iframe>`**.
+Before installing this plugin, you need the **official community H5P plugin for WordPress** already installed and active.
 
-```
-Pagina WordPress
-└── <iframe> ← H5P gira qui
-    ├── H5P.js
-    ├── H5P.InteractiveVideo.js
-    └── [il nostro tracker.js]  ← va iniettato QUI
-```
+There are two H5P plugins available for WordPress — they are **not interchangeable**:
 
-Il `H5P.externalDispatcher` (il bus degli eventi xAPI) esiste **solo nel contesto dell'iframe**.  
-Non puoi intercettarlo dal JavaScript della pagina WordPress esterna: è cross-origin JavaScript, vietato dal browser.
+| Plugin | Source | Compatible |
+|--------|--------|:----------:|
+| **H5P** by H5P Group (community plugin) | [wordpress.org/plugins/h5p](https://wordpress.org/plugins/h5p/) | ✅ Yes |
+| H5P block editor plugin (Gutenberg) | Pre-installed in some WP versions | ❌ No |
 
-**La soluzione**: usare il filtro PHP `h5p_alter_library_scripts` che aggiunge script al bundle H5P **dentro l'iframe**. Da lì hai accesso diretto a tutto il runtime H5P.
+Install the community plugin first: **Dashboard → Plugins → Add New** → search "H5P" → install the one by **H5P Group** (50,000+ installs) → Activate.
 
 ---
 
-## Installazione
+## Why this plugin exists
 
-### 1. Carica il plugin
+H5P sends xAPI statements natively, but coverage is minimal:
 
-Copia la cartella `h5p-xapi-enhanced/` in:
-```
-wp-content/plugins/h5p-xapi-enhanced/
-```
+| Content Type      | Native xAPI | What is missing |
+|-------------------|:-----------:|-----------------|
+| Interactive Video | ✅ partial | play, pause, seek, 25/50/75% milestones, time-on-task per question |
+| Game Map          | ✅ partial | node navigation, time spent per node |
+| Virtual Tour      | ✅ partial | scene navigation, hotspot clicks, time per scene |
+| All others        | ✅ partial | `result.duration` missing from most statements |
 
-### 2. Configura le credenziali LRS
-
-In `wp-config.php` (o direttamente nel file `.php` del plugin):
-
-```php
-define( 'H5PXAPI_LRS_ENDPOINT', 'https://cartesiani--noisy.lrs.io/xapi' );
-define( 'H5PXAPI_LRS_USERNAME', 'tuo-username' );
-define( 'H5PXAPI_LRS_PASSWORD', 'tua-password' );
-```
-
-### 3. Attiva il plugin
-
-Dashboard WordPress → Plugin → Attiva "H5P xAPI Enhanced Tracker"
-
-### 4. Verifica
-
-Apri un contenuto H5P (es. un Interactive Video) e apri la **console del browser**.  
-Con `debug: true` nel config vedrai tutti gli statement in console.
-
-Per attivare il debug temporaneamente, aggiungi in `wp-config.php`:
-```php
-define( 'WP_DEBUG', true );
-```
+This plugin adds all of the above, plus cleans up activity IDs and contextActivities hierarchy across all content types.
 
 ---
 
-## Statement generati
+## How it works
 
-### Interactive Video (`H5P.InteractiveVideo`)
+H5P in WordPress runs inside an `<iframe>`. The `H5P.externalDispatcher` — the only xAPI interception point — lives inside that iframe. You cannot reach it from the parent WordPress page.
 
-Conformi al **[Video xAPI Profile](https://w3id.org/xapi/video)**:
+This plugin uses the official `h5p_alter_library_scripts` filter to inject scripts **inside** the H5P bundle before it renders. From there the tracker has direct access to `H5P`, `H5P.instances`, and `H5PIntegration` (which contains the logged-in WordPress user's data for the xAPI actor).
 
-| Evento           | Verb IRI                                           | Dati aggiuntivi                                    |
-|------------------|----------------------------------------------------|----------------------------------------------------|
-| Video avviato    | `https://w3id.org/xapi/video/verbs/played`         | `time` (posizione in secondi)                      |
-| Video in pausa   | `https://w3id.org/xapi/video/verbs/paused`         | `time`, `progress`, `played-segments`              |
-| Seek             | `https://w3id.org/xapi/video/verbs/seeked`         | `time-from`, `time-to`                             |
-| Milestone 25%    | `http://adlnet.gov/expapi/verbs/progressed`        | `progress: 0.25`, `time`                           |
-| Milestone 50%    | `http://adlnet.gov/expapi/verbs/progressed`        | `progress: 0.50`, `time`                           |
-| Milestone 75%    | `http://adlnet.gov/expapi/verbs/progressed`        | `progress: 0.75`, `time`                           |
+```
+WordPress page
+└── <iframe>
+    ├── H5P runtime
+    ├── H5P.InteractiveVideo / GameMap / ThreeImage...
+    ├── js/config.js     ← injected by this plugin (LRS credentials + actor)
+    └── js/tracker.js    ← injected by this plugin (tracking logic)
+```
 
-Plus tutto il tracciamento nativo (domande, completed, ecc.) via pass-through.
+The `config.js` file is generated as a static file on the server every time you save the settings page. No dynamic PHP endpoints are involved during playback.
+
+---
+
+## Statements generated
+
+### Interactive Video (`H5P.InteractiveVideo`) — Video xAPI Profile
+
+| Event | Verb | Key result data |
+|-------|------|-----------------|
+| Played | `https://w3id.org/xapi/video/verbs/played` | playback position |
+| Paused | `https://w3id.org/xapi/video/verbs/paused` | `duration` (watch time), progress, segments |
+| Seeked | `https://w3id.org/xapi/video/verbs/seeked` | time-from, time-to |
+| 25/50/75% milestone | `http://adlnet.gov/expapi/verbs/progressed` | `duration` to milestone, progress value |
+| Video completed | `http://adlnet.gov/expapi/verbs/experienced` | `duration` (total effective watch time) |
+| Question answered | *(native, pass-through)* | `duration` added (time from display to answer) |
 
 ### Game Map (`H5P.GameMap`)
 
-| Evento           | Verb IRI                                              | Dati aggiuntivi                         |
-|------------------|-------------------------------------------------------|-----------------------------------------|
-| Entrata in nodo  | `https://w3id.org/xapi/adl/verbs/navigated-in`        | ID nodo, nome, parent = mappa           |
+| Event | Verb | Key result data |
+|-------|------|-----------------|
+| Node entered | `https://w3id.org/xapi/adl/verbs/navigated-in` | node ID and name |
+| Node left | `http://adlnet.gov/expapi/verbs/experienced` | `duration` (time in node) |
 
 ### Virtual Tour (`H5P.ThreeImage`)
 
-| Evento           | Verb IRI                                              | Dati aggiuntivi                         |
-|------------------|-------------------------------------------------------|-----------------------------------------|
-| Cambio scena     | `https://w3id.org/xapi/adl/verbs/navigated-in`        | sceneId from/to, nome scena             |
-| Click hotspot    | `http://adlnet.gov/expapi/verbs/interacted`           | ID hotspot, scena corrente, parent      |
+| Event | Verb | Key result data |
+|-------|------|-----------------|
+| Tour opened | `http://adlnet.gov/expapi/verbs/attempted` | tour activity |
+| Scene entered | `http://adlnet.gov/expapi/verbs/attempted` | scene ID and name |
+| Scene left | `http://adlnet.gov/expapi/verbs/completed` | `duration` (time in scene) |
+| Hotspot / info clicked | `http://adlnet.gov/expapi/verbs/interacted` | hotspot name, time in scene |
+| Tour closed (Exit button) | `http://adlnet.gov/expapi/verbs/experienced` | total `duration`, scenes visited count |
+
+All other H5P content types: native statements forwarded to the LRS via pass-through, with actor added where missing and `result.duration` added to `completed` statements.
 
 ---
 
-## Come funziona il codice
+## Activity ID cleanup
 
-### PHP → inietta la config nell'iframe
+H5P generates activity IDs like:
+```
+https://yoursite.com/wp-admin/admin-ajax.php?action=h5p_embed&id=1?subContentId=c0e6e211-...
+```
+
+This plugin rewrites them to clean, stable IRIs:
+```
+https://yoursite.com/page-where-h5p-is-embedded#h5p-1
+https://yoursite.com/page-where-h5p-is-embedded#h5p-1/c0e6e211-...
+```
+
+It also fixes `contextActivities` to include the full hierarchy:
+- `parent` → immediate container (e.g. the SingleChoiceSet containing the question)
+- `grouping[0]` → the H5P content (Interactive Video, Game Map, etc.)
+- `grouping[1]` → the WordPress page where the content is embedded
+- `category` → H5P library identifier (unchanged)
+
+---
+
+## Installation
+
+### 1. Upload the plugin
+
+**Dashboard → Plugins → Add New → Upload Plugin** → select `h5p-xapi-enhanced.zip` → **Install Now** → **Activate**.
+
+### 2. Configure
+
+Go to **Settings → H5P xAPI Tracker** and enter:
+
+- **LRS Endpoint** — xAPI base URL (e.g. `https://your-lrs.io/xapi`, no trailing slash)
+- **LRS Username** — Basic Auth key or username
+- **LRS Password** — Basic Auth secret or password
+
+Click **Verify LRS Connection** to test immediately — no need to save first.
+
+Click **Save Settings** — this generates `js/config.js` with your credentials. **You must save at least once for tracking to work.**
+
+### 3. (Optional) Override via wp-config.php
+
+For production deployments where credentials should not be in the database:
 
 ```php
-// Il filtro aggiunge i nostri script al bundle H5P (dentro l'iframe)
-add_filter( 'h5p_alter_library_scripts', 'h5pxapi_inject_scripts', 10, 3 );
-
-// Un endpoint wp-ajax serve la configurazione come JavaScript
-// Include le credenziali LRS + i dati dell'utente WP loggato
-add_action( 'wp_ajax_h5pxapi_config', 'h5pxapi_serve_config' );
+define( 'H5PXAPI_LRS_ENDPOINT', 'https://your-lrs.io/xapi' );
+define( 'H5PXAPI_LRS_USERNAME', 'your-username' );
+define( 'H5PXAPI_LRS_PASSWORD', 'your-password' );
 ```
 
-### JavaScript — tre livelli di intercettazione
-
-**Livello 1: Pass-through xAPI nativo**
-```javascript
-H5P.externalDispatcher.on('xAPI', onNativeXAPI);
-// ↳ cattura TUTTI gli statement xAPI che H5P già invia, li forwarda all'LRS
-```
-
-**Livello 2: Event listener sulle istanze**
-```javascript
-// Per Interactive Video: ascolto eventi del video player
-instance.video.on('stateChange', function(event) { ... });
-instance.video.on('seeked', function() { ... });
-
-// Per Virtual Tour: ascolto navigazione scene
-instance.on('navigatedTo', function(event) { ... });
-```
-
-**Livello 3: Monkey-patching (fallback)**
-```javascript
-// Se gli eventi non sono esposti, intercettiamo direttamente il metodo
-var original = proto.navigateTo;
-proto.navigateTo = function(sceneId) {
-    original.apply(this, arguments);
-    // ... poi inviamo il nostro statement
-};
-```
-
-**Intercettazione di future istanze:**
-```javascript
-// H5P.newRunnable è la factory di tutte le istanze H5P
-var originalNewRunnable = H5P.newRunnable;
-H5P.newRunnable = function() {
-    var inst = originalNewRunnable.apply(this, arguments);
-    if (inst) setTimeout(() => attachEnhancedTracking(inst), 300);
-    return inst;
-};
-```
+When constants are defined, the settings page fields are disabled and show a notice.
 
 ---
 
-## Struttura file
+## Automatic updates from GitHub
+
+This plugin uses [plugin-update-checker](https://github.com/YahnisElsts/plugin-update-checker) to receive updates directly from GitHub Releases — exactly like plugins from the WordPress.org directory.
+
+When a new release is published at [github.com/Renato1596/h5p-xapi-enhanced](https://github.com/Renato1596/h5p-xapi-enhanced), WordPress will show the standard "Update Available" notification in the Plugins page.
+
+---
+
+## File structure
 
 ```
 h5p-xapi-enhanced/
-├── h5p-xapi-enhanced.php   ← plugin principale (PHP)
-└── js/
-    └── tracker.js          ← logica di tracciamento (JavaScript)
+├── h5p-xapi-enhanced.php        ← main plugin file
+├── js/
+│   ├── tracker.js               ← tracking logic
+│   └── config.js                ← auto-generated on settings save
+└── plugin-update-checker/       ← update library
 ```
 
 ---
 
-## FAQ per lo sviluppo del corso
+## Extending to other platforms
 
-**Q: Perché non basta usare `wp_enqueue_script` nella pagina WordPress?**  
-A: Perché H5P gira in un iframe. Il JavaScript della pagina non può accedere al runtime H5P dentro l'iframe (same-origin policy del browser). L'unico modo è iniettare dentro l'iframe tramite `h5p_alter_library_scripts`.
+`tracker.js` is platform-agnostic — it only uses H5P's internal API. To port to another platform:
 
-**Q: Cosa succede se l'utente non è loggato in WordPress?**  
-A: Il plugin genera un actor anonimo con `account.name = 'anonymous'`. Per corsi che richiedono identificazione, bisogna assicurarsi che gli utenti siano loggati.
+- **Moodle (mod_hvp)**: implement `local_h5pxapi_hvp_scripts()` in a local plugin's `lib.php`
+- **Moodle (mod_h5pactivity)**: use a `postMessage` listener in the parent page
+- **ILIAS**: create a UIHook plugin injecting scripts into the H5P template
+- **Standalone**: include `tracker.js` directly in `index.html` — no injection needed
 
-**Q: Il tracciamento funziona anche per contenuti H5P embeddati via shortcode?**  
-A: Sì, `h5p_alter_library_scripts` si applica a tutti i render H5P, inclusi shortcode nelle pagine.
-
-**Q: E se H5P non usa iframe (embed type "div")?**  
-A: Funziona ancora, in modo ancora più diretto: `H5P` è accessibile direttamente nel contesto della pagina.
-
-**Q: Come testo se gli statement arrivano al LRS?**  
-A: Veracity (e la maggior parte degli LRS) offre una tab "Statement Stream" o simile per vedere i statement in tempo reale. Puoi anche usare la console del browser con `debug: true`.
+`tracker.js` is unchanged in all cases. Only the connector layer differs.
 
 ---
 
-## Note su H5P.GameMap e H5P.ThreeImage
-
-Questi due content type sono relativamente recenti e i nomi degli eventi interni possono variare tra versioni. Il tracker usa **due strategie in parallelo**:
-
-1. **Event listener** sul metodo `on()` dell'istanza (quando gli eventi sono esposti)
-2. **Monkey-patch** del metodo di navigazione (fallback universale)
-
-Se gli statement di navigazione non appaiono in console, apri la DevTools e ispeziona l'istanza H5P:
-```javascript
-// Nella console del browser (dentro l'iframe H5P)
-H5P.instances[0]  // ispezione dell'istanza
-```
-
----
-
-*Realizzato per il Modulo 3 — Tracciamento xAPI avanzato con H5P*  
-*Corso: Specializzazione xAPI per Instructional Designer*
+*Part of the xAPI Specialization course for Instructional Designers — Module 3: Advanced xAPI tracking with H5P*

@@ -1,5 +1,5 @@
 /**
- * H5P xAPI Enhanced Tracker  —  tracker.js  v1.3.7
+ * H5P xAPI Enhanced Tracker  —  tracker.js  v1.3.9
  * ─────────────────────────────────────────────────────────────────────────────
  * Questo script viene caricato DENTRO il contesto H5P (iframe incluso).
  *
@@ -1271,7 +1271,7 @@
   // ══════════════════════════════════════════════════════════════════════════
 
   function onReady() {
-    log('H5P xAPI Enhanced Tracker v1.3.7 — inizializzazione');
+    log('H5P xAPI Enhanced Tracker v1.3.9 — inizializzazione');
 
     H5P.externalDispatcher.on('xAPI', onNativeXAPI);
 

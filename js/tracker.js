@@ -1,5 +1,5 @@
 /**
- * H5P xAPI Enhanced Tracker  —  tracker.js  v1.3.9
+ * H5P xAPI Enhanced Tracker  —  tracker.js  v1.4.0
  * ─────────────────────────────────────────────────────────────────────────────
  * Questo script viene caricato DENTRO il contesto H5P (iframe incluso).
  *
@@ -915,48 +915,46 @@
     }
 
     // ── Legge la scena attiva dal DOM ─────────────────────────────────────
-    // Quando changedScene scatta (senza dati), leggiamo l'aria-label
-    // del container .h5p-three-sixty-scene che H5P aggiorna al cambio scena.
-    // Poi facciamo reverse-lookup da nome → sceneId tramite scenesByName.
-    function detectCurrentSceneFromDOM() {
-      // Cerca il container della scena attiva — ha classe h5p-three-sixty-scene
-      // e aria-label con il nome della scena
-      var selectors = [
-        '.h5p-three-sixty-scene',
-        '[class*="three-sixty-scene"]',
-        '[class*="three-sixty"][class*="controls"]',
-      ];
-      var sceneEl = null;
-      for (var i = 0; i < selectors.length; i++) {
-        sceneEl = document.querySelector(selectors[i]);
-        if (sceneEl) break;
-      }
-
-      if (!sceneEl) {
-        log('VirtualTour: DOM scene container non trovato');
-        return null;
-      }
-
-      var ariaLabel = (sceneEl.getAttribute('aria-label') || '').trim();
-      log('VirtualTour: aria-label scena attiva =', ariaLabel);
-
+    // H5P.ThreeImage crea UN CONTAINER PER OGNI SCENA e li mostra/nasconde.
+    // querySelector prende il primo nel DOM (spesso quello nascosto).
+    // Usiamo querySelectorAll + filtro visibilità per trovare quello attivo.
+    function findSceneByAriaLabel(ariaLabel) {
       if (!ariaLabel) return null;
-
-      // Lookup esatto
-      var sceneId = scenesByName[ariaLabel.toLowerCase()];
+      var low = ariaLabel.toLowerCase().trim();
+      var sceneId = scenesByName[low];
       if (sceneId) return { id: sceneId, name: scenesById[sceneId] };
-
-      // Lookup parziale (tollerante a differenze di capitalizzazione/spazi)
-      var ariaLow = ariaLabel.toLowerCase();
+      // Lookup parziale
       for (var name in scenesByName) {
-        if (name.indexOf(ariaLow) !== -1 || ariaLow.indexOf(name) !== -1) {
+        if (low.indexOf(name) !== -1 || name.indexOf(low) !== -1) {
           return { id: scenesByName[name], name: scenesById[scenesByName[name]] };
         }
       }
+      return { id: ariaLabel, name: ariaLabel }; // fallback
+    }
 
-      // Fallback: usa l'aria-label come nome (senza sceneId noto)
-      log('VirtualTour: aria-label non trovato in scenesById:', ariaLabel);
-      return { id: ariaLabel, name: ariaLabel };
+    function detectCurrentSceneFromDOM() {
+      // Selettori in ordine di specificità
+      var sel = '.h5p-three-sixty-scene, [class*="three-sixty-scene"], [class*="three-sixty"][class*="controls"]';
+      var candidates = document.querySelectorAll(sel);
+      log('VirtualTour: trovati', candidates.length, 'scene containers nel DOM');
+
+      // Prima passata: cerca il container VISIBILE con aria-label
+      for (var i = 0; i < candidates.length; i++) {
+        var el    = candidates[i];
+        var label = (el.getAttribute('aria-label') || '').trim();
+        var st    = window.getComputedStyle(el);
+        var vis   = st.display !== 'none' && st.visibility !== 'hidden' && parseFloat(st.opacity) > 0;
+        log('VirtualTour: container', i, '| aria-label:', label || '(vuoto)', '| visibile:', vis);
+        if (label && vis) return findSceneByAriaLabel(label);
+      }
+
+      // Seconda passata: qualsiasi container con aria-label (ignora visibilità)
+      for (var j = 0; j < candidates.length; j++) {
+        var label2 = (candidates[j].getAttribute('aria-label') || '').trim();
+        if (label2) return findSceneByAriaLabel(label2);
+      }
+
+      return null;
     }
 
     // ── Cambio scena ──────────────────────────────────────────────────────
@@ -991,14 +989,30 @@
       log('VirtualTour: attempted scena', sceneName, 'n.', sceneCount);
     }
 
-    // ── Trigger rilevamento scena (da changedScene o click) ───────────────
+    // ── Trigger rilevamento scena con retry ──────────────────────────────
+    // H5P potrebbe aggiornare l'aria-label in modo asincrono —
+    // riproviamo con delay crescenti finché non troviamo la scena nuova.
     var detectTimeout = null;
     function scheduleDetect(delay) {
       if (detectTimeout) clearTimeout(detectTimeout);
-      detectTimeout = setTimeout(function () {
+      var prevId = currentScene ? currentScene.id : null;
+      var attempts = 0;
+      var delays   = [150, 300, 600, 1200, 2000];
+
+      function tryDetect() {
         var scene = detectCurrentSceneFromDOM();
-        if (scene) onSceneChange(scene.id, scene.name);
-      }, delay || 150);
+        if (scene && scene.id !== prevId) {
+          onSceneChange(scene.id, scene.name);
+          return;
+        }
+        attempts++;
+        if (attempts < delays.length) {
+          detectTimeout = setTimeout(tryDetect, delays[attempts]);
+        } else {
+          log('VirtualTour: rilevamento scena fallito dopo tutti i tentativi');
+        }
+      }
+      detectTimeout = setTimeout(tryDetect, delay || delays[0]);
     }
 
     // ── Completamento tour ────────────────────────────────────────────────
@@ -1149,6 +1163,35 @@
       }
     }, true);
 
+    // ── MutationObserver: aria-label changes ─────────────────────────────
+    // H5P.ThreeImage aggiorna l'aria-label sul container della scena
+    // quando cambia scena. Intercettiamo questo cambio di attributo
+    // nel momento esatto in cui avviene — zero problemi di timing.
+    setTimeout(function () {
+      var ariaObserver = new MutationObserver(function (mutations) {
+        mutations.forEach(function (mutation) {
+          if (mutation.type !== 'attributes') return;
+          var el    = mutation.target;
+          var label = (el.getAttribute('aria-label') || '').trim();
+          if (!label) return;
+          var cls = (typeof el.className === 'string') ? el.className : '';
+          // Filtra solo i container delle scene (ignora altri elementi con aria-label)
+          if (cls.indexOf('three-sixty') === -1 && cls.indexOf('h5p-scene') === -1) return;
+          var scene = findSceneByAriaLabel(label);
+          if (scene && (!currentScene || scene.id !== currentScene.id)) {
+            log('VirtualTour: aria-label cambiato →', label, '→ scena:', scene.id);
+            onSceneChange(scene.id, scene.name);
+          }
+        });
+      });
+      ariaObserver.observe(document.body, {
+        attributes:      true,
+        subtree:         true,
+        attributeFilter: ['aria-label'],
+      });
+      log('VirtualTour: aria-label observer attivo');
+    }, 900);
+
     // ── MutationObserver per popup info ───────────────────────────────────
     var sentPopups = {};
     setTimeout(function () {
@@ -1271,7 +1314,7 @@
   // ══════════════════════════════════════════════════════════════════════════
 
   function onReady() {
-    log('H5P xAPI Enhanced Tracker v1.3.9 — inizializzazione');
+    log('H5P xAPI Enhanced Tracker v1.4.0 — inizializzazione');
 
     H5P.externalDispatcher.on('xAPI', onNativeXAPI);
 

@@ -1,5 +1,5 @@
 /**
- * H5P xAPI Enhanced Tracker  —  tracker.js  v1.4.4
+ * H5P xAPI Enhanced Tracker  —  tracker.js  v1.4.5
  * ─────────────────────────────────────────────────────────────────────────────
  * Questo script viene caricato DENTRO il contesto H5P (iframe incluso).
  *
@@ -19,6 +19,38 @@
   // ══════════════════════════════════════════════════════════════════════════
   // 0.  ATTENDI H5P
   // ══════════════════════════════════════════════════════════════════════════
+
+  // ── Mappa libreria H5P → activity type IRI ───────────────────────────────
+  // Per i tipi senza URI standard ufficiale usiamo il dominio del plugin.
+  var H5P_ACTIVITY_TYPES = {
+    // Video
+    'H5P.InteractiveVideo': 'https://w3id.org/xapi/video/activity-type/video',
+    // Presentazione
+    'H5P.CoursePresentation': 'https://h5p-xapi.cartesiani.it/activity-type/presentation',
+    // Quiz e domande
+    'H5P.QuestionSet':        'https://h5p-xapi.cartesiani.it/activity-type/quiz',
+    'H5P.SingleChoiceSet':    'https://h5p-xapi.cartesiani.it/activity-type/single-choice-set',
+    'H5P.MultiChoice':        'http://adlnet.gov/expapi/activities/cmi.interaction',
+    'H5P.TrueFalse':          'http://adlnet.gov/expapi/activities/cmi.interaction',
+    'H5P.Blanks':             'http://adlnet.gov/expapi/activities/cmi.interaction',
+    'H5P.DragQuestion':       'http://adlnet.gov/expapi/activities/cmi.interaction',
+    'H5P.DragText':           'http://adlnet.gov/expapi/activities/cmi.interaction',
+    'H5P.MarkTheWords':       'http://adlnet.gov/expapi/activities/cmi.interaction',
+    // Mappe e tour
+    'H5P.GameMap':            'https://h5p-xapi.cartesiani.it/activity-type/game-map',
+    'H5P.ThreeImage':         'https://w3id.org/xapi/virtual-reality/activity-type/360-image',
+    // Contenuto generico
+    'H5P.InteractiveBook':    'https://h5p-xapi.cartesiani.it/activity-type/interactive-book',
+    'H5P.Column':             'https://h5p-xapi.cartesiani.it/activity-type/column',
+    'H5P.Summary':            'http://adlnet.gov/expapi/activities/assessment',
+    'H5P.Accordion':          'https://h5p-xapi.cartesiani.it/activity-type/accordion',
+    'H5P.Timeline':           'https://h5p-xapi.cartesiani.it/activity-type/timeline',
+    'H5P.ImageHotspots':      'https://h5p-xapi.cartesiani.it/activity-type/image-hotspots',
+    'H5P.Flashcards':         'https://h5p-xapi.cartesiani.it/activity-type/flashcards',
+    // Default fallback
+    '_default':               'http://adlnet.gov/expapi/activities/module',
+  };
+
 
   // In WordPress: H5P è già disponibile quando tracker.js gira
   // In standalone: H5P.externalDispatcher arriva dopo — polling fino a 15s
@@ -235,37 +267,6 @@
     }
     return _pageUrl;
   }
-
-  // ── Mappa libreria H5P → activity type IRI ───────────────────────────────
-  // Per i tipi senza URI standard ufficiale usiamo il dominio del plugin.
-  var H5P_ACTIVITY_TYPES = {
-    // Video
-    'H5P.InteractiveVideo': 'https://w3id.org/xapi/video/activity-type/video',
-    // Presentazione
-    'H5P.CoursePresentation': 'https://h5p-xapi.cartesiani.it/activity-type/presentation',
-    // Quiz e domande
-    'H5P.QuestionSet':        'https://h5p-xapi.cartesiani.it/activity-type/quiz',
-    'H5P.SingleChoiceSet':    'https://h5p-xapi.cartesiani.it/activity-type/single-choice-set',
-    'H5P.MultiChoice':        'http://adlnet.gov/expapi/activities/cmi.interaction',
-    'H5P.TrueFalse':          'http://adlnet.gov/expapi/activities/cmi.interaction',
-    'H5P.Blanks':             'http://adlnet.gov/expapi/activities/cmi.interaction',
-    'H5P.DragQuestion':       'http://adlnet.gov/expapi/activities/cmi.interaction',
-    'H5P.DragText':           'http://adlnet.gov/expapi/activities/cmi.interaction',
-    'H5P.MarkTheWords':       'http://adlnet.gov/expapi/activities/cmi.interaction',
-    // Mappe e tour
-    'H5P.GameMap':            'https://h5p-xapi.cartesiani.it/activity-type/game-map',
-    'H5P.ThreeImage':         'https://w3id.org/xapi/virtual-reality/activity-type/360-image',
-    // Contenuto generico
-    'H5P.InteractiveBook':    'https://h5p-xapi.cartesiani.it/activity-type/interactive-book',
-    'H5P.Column':             'https://h5p-xapi.cartesiani.it/activity-type/column',
-    'H5P.Summary':            'http://adlnet.gov/expapi/activities/assessment',
-    'H5P.Accordion':          'https://h5p-xapi.cartesiani.it/activity-type/accordion',
-    'H5P.Timeline':           'https://h5p-xapi.cartesiani.it/activity-type/timeline',
-    'H5P.ImageHotspots':      'https://h5p-xapi.cartesiani.it/activity-type/image-hotspots',
-    'H5P.Flashcards':         'https://h5p-xapi.cartesiani.it/activity-type/flashcards',
-    // Default fallback
-    '_default':               'http://adlnet.gov/expapi/activities/module',
-  };
 
   // Restituisce il tipo corretto per un content ID H5P
   function getActivityType(contentId) {
@@ -1352,7 +1353,7 @@
   // ══════════════════════════════════════════════════════════════════════════
 
   function onReady() {
-    log('H5P xAPI Enhanced Tracker v1.4.4 — inizializzazione');
+    log('H5P xAPI Enhanced Tracker v1.4.5 — inizializzazione');
 
     H5P.externalDispatcher.on('xAPI', onNativeXAPI);
 

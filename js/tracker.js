@@ -1,5 +1,5 @@
 /**
- * H5P xAPI Enhanced Tracker  —  tracker.js  v1.4.1
+ * H5P xAPI Enhanced Tracker  —  tracker.js  v1.4.2
  * ─────────────────────────────────────────────────────────────────────────────
  * Questo script viene caricato DENTRO il contesto H5P (iframe incluso).
  *
@@ -959,8 +959,8 @@
 
     // ── Cambio scena ──────────────────────────────────────────────────────
     function onSceneChange(sceneId, sceneName) {
-      if (!sceneId) return;
-      if (currentScene && currentScene.id === sceneId) return;
+      if (sceneId === null || sceneId === undefined) return;  // 0 è valido!
+      if (currentScene && String(currentScene.id) === String(sceneId)) return;
 
       if (currentScene && sceneTimer) {
         var elapsed = sceneTimer.stop();
@@ -1324,7 +1324,7 @@
   // ══════════════════════════════════════════════════════════════════════════
 
   function onReady() {
-    log('H5P xAPI Enhanced Tracker v1.4.1 — inizializzazione');
+    log('H5P xAPI Enhanced Tracker v1.4.2 — inizializzazione');
 
     H5P.externalDispatcher.on('xAPI', onNativeXAPI);
 

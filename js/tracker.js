@@ -1,5 +1,5 @@
 /**
- * H5P xAPI Enhanced Tracker  —  tracker.js  v1.4.2
+ * H5P xAPI Enhanced Tracker  —  tracker.js  v1.4.3
  * ─────────────────────────────────────────────────────────────────────────────
  * Questo script viene caricato DENTRO il contesto H5P (iframe incluso).
  *
@@ -262,14 +262,20 @@
   function decodeHtmlEntities(str) {
     if (!str || typeof str !== 'string') return str;
     return str
+      // Entità numeriche decimali: &#039; &#39; &#160; ecc.
+      .replace(/&#0*(\d+);/g, function (_, num) {
+        return String.fromCharCode(parseInt(num, 10));
+      })
+      // Entità numeriche esadecimali: &#x27; &#x2F; ecc.
+      .replace(/&#x([0-9a-fA-F]+);/g, function (_, hex) {
+        return String.fromCharCode(parseInt(hex, 16));
+      })
+      // Entità nominali
       .replace(/&amp;/g,  '&')
       .replace(/&lt;/g,   '<')
       .replace(/&gt;/g,   '>')
       .replace(/&quot;/g, '"')
-      .replace(/&#39;/g,  "'")
       .replace(/&apos;/g, "'")
-      .replace(/&#x27;/g, "'")
-      .replace(/&#x2F;/g, '/')
       .replace(/&nbsp;/g, ' ');
   }
 
@@ -1324,7 +1330,7 @@
   // ══════════════════════════════════════════════════════════════════════════
 
   function onReady() {
-    log('H5P xAPI Enhanced Tracker v1.4.2 — inizializzazione');
+    log('H5P xAPI Enhanced Tracker v1.4.3 — inizializzazione');
 
     H5P.externalDispatcher.on('xAPI', onNativeXAPI);
 

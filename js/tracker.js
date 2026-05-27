@@ -1,5 +1,5 @@
 /**
- * H5P xAPI Enhanced Tracker  —  tracker.js  v1.4.3
+ * H5P xAPI Enhanced Tracker  —  tracker.js  v1.4.4
  * ─────────────────────────────────────────────────────────────────────────────
  * Questo script viene caricato DENTRO il contesto H5P (iframe incluso).
  *
@@ -20,8 +20,30 @@
   // 0.  ATTENDI H5P
   // ══════════════════════════════════════════════════════════════════════════
 
-  if (typeof H5P === 'undefined') {
-    console.warn('[H5PxAPI] H5P non trovato — tracker non attivato.');
+  // In WordPress: H5P è già disponibile quando tracker.js gira
+  // In standalone: H5P.externalDispatcher arriva dopo — polling fino a 15s
+  if (typeof H5P === 'undefined' || !H5P.externalDispatcher) {
+    var _pollCount = 0;
+    var _pollH5P = setInterval(function () {
+      _pollCount++;
+      if (typeof H5P !== 'undefined' && H5P.externalDispatcher) {
+        clearInterval(_pollH5P);
+        log('H5P disponibile dopo', (_pollCount * 150) + 'ms — avvio tracking');
+        onReady();
+      } else if (_pollCount > 100) {
+        clearInterval(_pollH5P);
+        console.warn('[H5PxAPI] H5P non disponibile dopo 15s — tracker non attivato.');
+      }
+    }, 150);
+    // In WordPress: se H5P c'è ma manca externalDispatcher aspetta DOMContentLoaded
+    if (typeof H5P !== 'undefined' && !H5P.externalDispatcher) {
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function () {
+          clearInterval(_pollH5P);
+          onReady();
+        });
+      }
+    }
     return;
   }
 
@@ -1330,7 +1352,7 @@
   // ══════════════════════════════════════════════════════════════════════════
 
   function onReady() {
-    log('H5P xAPI Enhanced Tracker v1.4.3 — inizializzazione');
+    log('H5P xAPI Enhanced Tracker v1.4.4 — inizializzazione');
 
     H5P.externalDispatcher.on('xAPI', onNativeXAPI);
 

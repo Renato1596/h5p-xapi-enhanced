@@ -3,7 +3,7 @@
  * Plugin Name:  H5P xAPI Enhanced Tracker
  * Description:  Tracciamento xAPI dettagliato per H5P (Interactive Video, Game Map,
  *               Virtual Tour) con pagina di configurazione integrata.
- * Version:      1.4.0
+ * Version:      1.4.1
  * Author:       Nicola Mastrorilli / Cartesiani
  * GitHub Plugin URI: https://github.com/Renato1596/h5p-xapi-enhanced
  */
@@ -35,7 +35,7 @@ $h5pxapi_updater->setBranch( 'main' );
 //  COSTANTI  (wp-config.php ha sempre la precedenza sulle opzioni del DB)
 // ═══════════════════════════════════════════════════════════════════════════
 
-define( 'H5PXAPI_VERSION',     '1.4.0' );
+define( 'H5PXAPI_VERSION',     '1.4.1' );
 define( 'H5PXAPI_PLUGIN_DIR',  plugin_dir_path( __FILE__ ) );
 define( 'H5PXAPI_PLUGIN_URL',  plugin_dir_url( __FILE__ ) );
 define( 'H5PXAPI_OPTION_KEY',  'h5pxapi_settings' );

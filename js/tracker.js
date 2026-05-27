@@ -1,5 +1,5 @@
 /**
- * H5P xAPI Enhanced Tracker  —  tracker.js  v1.4.0
+ * H5P xAPI Enhanced Tracker  —  tracker.js  v1.4.1
  * ─────────────────────────────────────────────────────────────────────────────
  * Questo script viene caricato DENTRO il contesto H5P (iframe incluso).
  *
@@ -990,26 +990,36 @@
     }
 
     // ── Trigger rilevamento scena con retry ──────────────────────────────
-    // H5P potrebbe aggiornare l'aria-label in modo asincrono —
-    // riproviamo con delay crescenti finché non troviamo la scena nuova.
+    // USA currentScene.id come riferimento LIVE (non prevId catturato),
+    // così il confronto è sempre corretto indipendentemente dall'ordine
+    // in cui changedScene e click si sovrappongono.
     var detectTimeout = null;
     function scheduleDetect(delay) {
       if (detectTimeout) clearTimeout(detectTimeout);
-      var prevId = currentScene ? currentScene.id : null;
       var attempts = 0;
       var delays   = [150, 300, 600, 1200, 2000];
 
       function tryDetect() {
-        var scene = detectCurrentSceneFromDOM();
-        if (scene && scene.id !== prevId) {
+        var scene  = detectCurrentSceneFromDOM();
+        var currId = currentScene ? currentScene.id : null;  // live reference
+
+        log('VirtualTour tryDetect: trovata =', scene ? scene.id + ' "' + scene.name + '"' : 'null',
+            '| corrente =', currId === null ? 'nessuna' : currId);
+
+        if (scene && String(scene.id) !== String(currId)) {
           onSceneChange(scene.id, scene.name);
           return;
         }
+        // Scena non trovata o uguale alla corrente → riprova
         attempts++;
         if (attempts < delays.length) {
           detectTimeout = setTimeout(tryDetect, delays[attempts]);
         } else {
-          log('VirtualTour: rilevamento scena fallito dopo tutti i tentativi');
+          if (scene) {
+            log('VirtualTour: scena già corrente dopo tutti i tentativi (OK se navigazione rapida)');
+          } else {
+            log('VirtualTour: rilevamento scena fallito dopo tutti i tentativi');
+          }
         }
       }
       detectTimeout = setTimeout(tryDetect, delay || delays[0]);
@@ -1314,7 +1324,7 @@
   // ══════════════════════════════════════════════════════════════════════════
 
   function onReady() {
-    log('H5P xAPI Enhanced Tracker v1.4.0 — inizializzazione');
+    log('H5P xAPI Enhanced Tracker v1.4.1 — inizializzazione');
 
     H5P.externalDispatcher.on('xAPI', onNativeXAPI);
 

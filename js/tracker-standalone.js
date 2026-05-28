@@ -104,7 +104,8 @@
   // 1.  CONFIGURAZIONE
   // ══════════════════════════════════════════════════════════════════════════
 
-  var cfg      = window.H5PxAPIConfig || {};
+  // In standalone: tracker gira nell'iframe, config.js è nella pagina padre
+  var cfg      = (window.parent && window.parent.H5PxAPIConfig) || window.H5PxAPIConfig || {};
   var LRS_ENDPOINT = cfg.lrsEndpoint || '';
   var LRS_AUTH     = cfg.lrsAuth     || '';
   var DEBUG        = cfg.debug       || false;

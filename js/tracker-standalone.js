@@ -1,4 +1,24 @@
 /**
+ * H5P xAPI Enhanced Tracker  —  tracker.js  v1.4.6
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Questo script viene caricato DENTRO il contesto H5P (iframe incluso).
+ *
+ * Content type supportati con tracciamento potenziato:
+ *   ✦ H5P.InteractiveVideo  → play, pause, seek, milestone 25/50/75%,
+ *                             duration su ogni segmento riprodotto e su domande
+ *   ✦ H5P.GameMap           → navigazione tra nodi + tempo per nodo
+ *   ✦ H5P.ThreeImage        → navigazione tra scene + tempo per scena + hotspot
+ *
+ * result.duration è in formato ISO 8601 (PTxxMxx.xxxS) come richiesto da xAPI.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+(function () {
+  'use strict';
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 0.  ATTENDI H5P
+  // ══════════════════════════════════════════════════════════════════════════
 
   // ── Mappa libreria H5P → activity type IRI ───────────────────────────────
   // Per i tipi senza URI standard ufficiale usiamo il dominio del plugin.
@@ -32,32 +52,48 @@
   };
 
 
- * H5P xAPI Enhanced Tracker  —  tracker.js  v1.4.3
- * ─────────────────────────────────────────────────────────────────────────────
- * Questo script viene caricato DENTRO il contesto H5P (iframe incluso).
- *
- * Content type supportati con tracciamento potenziato:
- *   ✦ H5P.InteractiveVideo  → play, pause, seek, milestone 25/50/75%,
- *                             duration su ogni segmento riprodotto e su domande
- *   ✦ H5P.GameMap           → navigazione tra nodi + tempo per nodo
- *   ✦ H5P.ThreeImage        → navigazione tra scene + tempo per scena + hotspot
- *
- * result.duration è in formato ISO 8601 (PTxxMxx.xxxS) come richiesto da xAPI.
- * ─────────────────────────────────────────────────────────────────────────────
- */
+  // Trova H5P.externalDispatcher — in WordPress è nel window corrente,
+  // in h5p-standalone è nell'iframe che il player crea (same-origin).
+  function _findDispatcher() {
+    // 1. WordPress / pagina diretta
+    if (typeof H5P !== 'undefined' && H5P.externalDispatcher) {
+      return H5P.externalDispatcher;
+    }
+    // 2. h5p-standalone — cerca negli iframe same-origin
+    var iframes = document.querySelectorAll('iframe');
+    for (var i = 0; i < iframes.length; i++) {
+      try {
+        var iH5P = iframes[i].contentWindow && iframes[i].contentWindow.H5P;
+        if (iH5P && iH5P.externalDispatcher) {
+          log('Dispatcher trovato in iframe #' + i);
+          return iH5P.externalDispatcher;
+        }
+      } catch (e) { /* cross-origin, ignoriamo */ }
+    }
+    return null;
+  }
 
-(function () {
-  'use strict';
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // 0.  ATTENDI H5P
-  // ══════════════════════════════════════════════════════════════════════════
-
-  if (typeof H5P === 'undefined') {
-    console.warn('[H5PxAPI] H5P non trovato — tracker non attivato.');
+  var _existingDispatcher = _findDispatcher();
+  if (!_existingDispatcher) {
+    var _pollCount = 0;
+    var _pollH5P = setInterval(function () {
+      _pollCount++;
+      var _d = _findDispatcher();
+      if (_d) {
+        clearInterval(_pollH5P);
+        log('H5P dispatcher trovato dopo ' + (_pollCount * 150) + 'ms');
+        // Passa il dispatcher a onReady tramite variabile globale al closure
+        window.__h5pTrackerDispatcher = _d;
+        onReady();
+      } else if (_pollCount > 100) {
+        clearInterval(_pollH5P);
+        console.warn('[H5PxAPI] H5P non disponibile dopo 15s — tracker non attivato.');
+      }
+    }, 150);
     return;
   }
 
+  window.__h5pTrackerDispatcher = _existingDispatcher;
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', onReady);
   } else {
@@ -1332,11 +1368,12 @@
   // ══════════════════════════════════════════════════════════════════════════
 
   function onReady() {
-    log('H5P xAPI Enhanced Tracker v1.4.3 — inizializzazione');
+    log('H5P xAPI Enhanced Tracker v1.4.6 — inizializzazione');
 
-    H5P.externalDispatcher.on('xAPI', onNativeXAPI);
+    (window.__h5pTrackerDispatcher || H5P.externalDispatcher).on('xAPI', onNativeXAPI);
 
-    if (H5P.instances && H5P.instances.length) {
+    var _h5pCtx = (typeof H5P !== 'undefined' && H5P.instances) ? H5P : (window.__h5pTrackerDispatcher && window.__h5pTrackerDispatcher._h5pCtx) || H5P;
+    if (_h5pCtx && _h5pCtx.instances && _h5pCtx.instances.length) {
       H5P.instances.forEach(attachEnhancedTracking);
     }
 

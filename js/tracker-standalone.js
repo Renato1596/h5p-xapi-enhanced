@@ -51,6 +51,17 @@
     '_default':               'http://adlnet.gov/expapi/activities/module',
   };
 
+  // ── Configurazione LRS ───────────────────────────────────────────────────
+  // DEVE stare prima del return anticipato del polling,
+  // altrimenti onReady() trova LRS_ENDPOINT = undefined
+  var cfg          = window.H5PxAPIConfig || {};
+  var LRS_ENDPOINT = cfg.lrsEndpoint || '';
+  var LRS_AUTH     = cfg.lrsAuth     || '';
+  var DEBUG        = cfg.debug       || false;
+
+  function log() {
+    if (DEBUG) console.log.apply(console, ['[H5PxAPI]'].concat(Array.prototype.slice.call(arguments)));
+  }
 
   // Trova H5P.externalDispatcher — in WordPress è nel window corrente,
   // in h5p-standalone è nell'iframe che il player crea (same-origin).
@@ -101,24 +112,18 @@
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // 1.  CONFIGURAZIONE
+  // 1.  CONFIGURAZIONE  (definita sopra, prima del return anticipato)
   // ══════════════════════════════════════════════════════════════════════════
-
-  // In standalone: tracker gira nell'iframe, config.js è nella pagina padre
-  var cfg      = (window.parent && window.parent.H5PxAPIConfig) || window.H5PxAPIConfig || {};
-  var LRS_ENDPOINT = cfg.lrsEndpoint || '';
-  var LRS_AUTH     = cfg.lrsAuth     || '';
-  var DEBUG        = cfg.debug       || false;
-
-  function log() {
-    if (DEBUG) console.log.apply(console, ['[H5PxAPI]'].concat(Array.prototype.slice.call(arguments)));
-  }
 
   // ══════════════════════════════════════════════════════════════════════════
   // 2.  ACTOR
   // ══════════════════════════════════════════════════════════════════════════
 
   function buildActor() {
+    // Rileggi cfg ogni volta — potrebbe essere stato settato dopo l'init
+    cfg = window.H5PxAPIConfig || cfg;
+    LRS_ENDPOINT = cfg.lrsEndpoint || LRS_ENDPOINT;
+    LRS_AUTH     = cfg.lrsAuth     || LRS_AUTH;
     if (cfg.actorMbox) {
       return { objectType: 'Agent', name: cfg.actorName || 'Learner', mbox: cfg.actorMbox };
     }

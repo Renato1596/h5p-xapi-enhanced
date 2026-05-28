@@ -63,6 +63,81 @@
     if (DEBUG) console.log.apply(console, ['[H5PxAPI]'].concat(Array.prototype.slice.call(arguments)));
   }
 
+  /**
+   * Converte millisecondi in stringa ISO 8601 duration.
+   * Esempi:  5000 → "PT5S"   |   90500 → "PT1M30.5S"   |   3723000 → "PT1H2M3S"
+   */
+  function isoDuration(ms) {
+    if (!ms || ms < 0) return 'PT0S';
+    var totalSec = ms / 1000;
+    var hours    = Math.floor(totalSec / 3600);
+    var minutes  = Math.floor((totalSec % 3600) / 60);
+    var seconds  = parseFloat((totalSec % 60).toFixed(3));
+
+    var str = 'PT';
+    if (hours)              str += hours   + 'H';
+    if (minutes)            str += minutes + 'M';
+    if (seconds || str === 'PT') str += seconds + 'S';
+    return str;
+  }
+
+  /**
+   * Timer semplice — tiene traccia di start, pause e resume
+   * per calcolare il tempo EFFETTIVO (esclude i periodi in pausa).
+   *
+   * Uso:
+   *   var t = new Timer();   // parte subito
+   *   t.pause();             // sospende il conteggio
+   *   t.resume();            // riprende
+   *   t.elapsed()            // ms trascorsi (solo attivo)
+   *   t.isoElapsed()         // come ISO 8601
+   */
+  function Timer(autoStart) {
+    this._start      = null;
+    this._elapsed    = 0;
+    this._running    = false;
+    if (autoStart !== false) this.start();
+  }
+
+  Timer.prototype.start = function () {
+    if (!this._running) {
+      this._start   = Date.now();
+      this._running = true;
+    }
+  };
+
+  Timer.prototype.pause = function () {
+    if (this._running) {
+      this._elapsed += Date.now() - this._start;
+      this._running  = false;
+    }
+  };
+
+  Timer.prototype.resume = function () {
+    if (!this._running) {
+      this._start   = Date.now();
+      this._running = true;
+    }
+  };
+
+  Timer.prototype.stop = function () {
+    this.pause();
+    var e = this._elapsed;
+    this._elapsed = 0;
+    this._running = false;
+    return e;
+  };
+
+  Timer.prototype.elapsed = function () {
+    if (this._running) return this._elapsed + (Date.now() - this._start);
+    return this._elapsed;
+  };
+
+  Timer.prototype.isoElapsed = function () {
+    return isoDuration(this.elapsed());
+  };
+
+
   // Trova H5P.externalDispatcher — in WordPress è nel window corrente,
   // in h5p-standalone è nell'iframe che il player crea (same-origin).
   function _findDispatcher() {
@@ -144,79 +219,6 @@
   //     Timer           → oggetto start/elapsed per misurare il tempo speso
   // ══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Converte millisecondi in stringa ISO 8601 duration.
-   * Esempi:  5000 → "PT5S"   |   90500 → "PT1M30.5S"   |   3723000 → "PT1H2M3S"
-   */
-  function isoDuration(ms) {
-    if (!ms || ms < 0) return 'PT0S';
-    var totalSec = ms / 1000;
-    var hours    = Math.floor(totalSec / 3600);
-    var minutes  = Math.floor((totalSec % 3600) / 60);
-    var seconds  = parseFloat((totalSec % 60).toFixed(3));
-
-    var str = 'PT';
-    if (hours)              str += hours   + 'H';
-    if (minutes)            str += minutes + 'M';
-    if (seconds || str === 'PT') str += seconds + 'S';
-    return str;
-  }
-
-  /**
-   * Timer semplice — tiene traccia di start, pause e resume
-   * per calcolare il tempo EFFETTIVO (esclude i periodi in pausa).
-   *
-   * Uso:
-   *   var t = new Timer();   // parte subito
-   *   t.pause();             // sospende il conteggio
-   *   t.resume();            // riprende
-   *   t.elapsed()            // ms trascorsi (solo attivo)
-   *   t.isoElapsed()         // come ISO 8601
-   */
-  function Timer(autoStart) {
-    this._start      = null;
-    this._elapsed    = 0;
-    this._running    = false;
-    if (autoStart !== false) this.start();
-  }
-
-  Timer.prototype.start = function () {
-    if (!this._running) {
-      this._start   = Date.now();
-      this._running = true;
-    }
-  };
-
-  Timer.prototype.pause = function () {
-    if (this._running) {
-      this._elapsed += Date.now() - this._start;
-      this._running  = false;
-    }
-  };
-
-  Timer.prototype.resume = function () {
-    if (!this._running) {
-      this._start   = Date.now();
-      this._running = true;
-    }
-  };
-
-  Timer.prototype.stop = function () {
-    this.pause();
-    var e = this._elapsed;
-    this._elapsed = 0;
-    this._running = false;
-    return e;
-  };
-
-  Timer.prototype.elapsed = function () {
-    if (this._running) return this._elapsed + (Date.now() - this._start);
-    return this._elapsed;
-  };
-
-  Timer.prototype.isoElapsed = function () {
-    return isoDuration(this.elapsed());
-  };
 
   // ══════════════════════════════════════════════════════════════════════════
   // 4.  INVIO STATEMENT

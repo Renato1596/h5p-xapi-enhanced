@@ -718,7 +718,7 @@
     // della domanda e possiamo calcolare il tempo.
     //
     // Teniamo un dizionario questionTimers keyed per activity ID della domanda.
-    H5P.externalDispatcher.on('xAPI', function (event) {
+    (window.__h5pTrackerDispatcher || H5P.externalDispatcher).on('xAPI', function (event) {
       var stmt = event.data && event.data.statement;
       if (!stmt) return;
 
@@ -1439,15 +1439,7 @@
       _h5pCtx.instances.forEach(attachEnhancedTracking);
     }
 
-    // Monkey-patch newRunnable nell'iframe per intercettare future istanze
-    if (_h5pCtx && _h5pCtx.newRunnable) {
-      var _origNewRunnable = _h5pCtx.newRunnable;
-      _h5pCtx.newRunnable = function () {
-        var inst = _origNewRunnable.apply(this, arguments);
-        if (inst) setTimeout(function () { attachEnhancedTracking(inst); }, 300);
-        return inst;
-      };
-    }
+    // newRunnable patch rimosso — causava crash nei popup delle domande IV
 
     log('Tracker attivo. LRS:', LRS_ENDPOINT || '(solo console)');
   }

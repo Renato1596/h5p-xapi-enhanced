@@ -1439,7 +1439,16 @@
       _h5pCtx.instances.forEach(attachEnhancedTracking);
     }
 
-    // newRunnable patch rimosso — causava crash nei popup delle domande IV
+    // Monkey-patch newRunnable nell'iframe per intercettare istanze create dinamicamente
+    // (il crash del Timer era causato da H5P.externalDispatcher sbagliato — ora fixato)
+    if (_h5pCtx && _h5pCtx.newRunnable) {
+      var _origNewRunnable = _h5pCtx.newRunnable;
+      _h5pCtx.newRunnable = function () {
+        var inst = _origNewRunnable.apply(this, arguments);
+        if (inst) setTimeout(function () { attachEnhancedTracking(inst); }, 300);
+        return inst;
+      };
+    }
 
     log('Tracker attivo. LRS:', LRS_ENDPOINT || '(solo console)');
   }

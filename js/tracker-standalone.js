@@ -503,8 +503,12 @@
 
     stmt = deepClone(stmt);
 
-    // Actor
-    if (!stmt.actor || (!stmt.actor.mbox && !stmt.actor.account)) {
+    // Actor — sempre usa il nostro se abbiamo credenziali dal login
+    // H5P standalone invia actor con account ma senza homePage (non valido xAPI)
+    if (cfg.actorMbox || cfg.actorName) {
+      stmt.actor = buildActor();
+    } else if (!stmt.actor || (!stmt.actor.mbox &&
+        (!stmt.actor.account || !stmt.actor.account.homePage))) {
       stmt.actor = buildActor();
     }
 

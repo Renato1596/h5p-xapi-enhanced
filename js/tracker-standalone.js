@@ -274,15 +274,13 @@
     if (_pageUrl) return _pageUrl;
     var isIframe = window.parent !== window;
     var referrer = document.referrer ? document.referrer.split('?')[0].replace(/\/$/, '') : '';
-
-    // Scarta i referrer che sono pagine admin WordPress (admin.php, admin-ajax.php ecc.)
-    // In quel caso l'H5P è aperto in anteprima dal backend — usiamo cfg.homepage come fallback
     var isAdminReferrer = referrer.indexOf('/wp-admin') !== -1;
 
     if (isIframe && referrer && !isAdminReferrer) {
       _pageUrl = referrer;
     } else if (!isIframe && window.location.href.indexOf('/wp-admin') === -1) {
-      _pageUrl = window.location.href.split('?')[0].replace(/\/$/, '');
+      // In standalone: usa l'URL corrente (es. https://railway.app/h5p/slug)
+      _pageUrl = window.location.href.split('?')[0].replace(/#.*$/, '').replace(/\/$/, '');
     } else {
       _pageUrl = cfg.homepage || window.location.origin;
     }
@@ -379,7 +377,29 @@
   }
 
   function fixStatement(stmt) {
-    var contentId    = getContentIdFromStmt(stmt);
+    // ── Standalone fix: object.id relativo → IRI valido ─────────────────
+    // h5p-standalone usa h5pJsonPath ('workspace') come activity ID base.
+    // Gli LRS rifiutano IRI non assoluti → costruiamo un IRI reale.
+    if (stmt.object && stmt.object.id && !stmt.object.id.match(/^https?:\/\//)) {
+      var pageBase = window.location.href.replace(/#.*$/, '').replace(/\/$/, '');
+      stmt.object.id = pageBase + '#' + stmt.object.id;
+    }
+
+    // ── Standalone fix: leggi contentId dall'iframe se non nell'URL ───────
+    var contentId = getContentIdFromStmt(stmt);
+    if (!contentId) {
+      // Prova a leggere dall'iframe H5P
+      var iframes = document.querySelectorAll('iframe');
+      for (var _i = 0; _i < iframes.length; _i++) {
+        try {
+          var _iH5P = iframes[_i].contentWindow.H5P;
+          if (_iH5P && _iH5P.instances && _iH5P.instances.length > 0) {
+            contentId = String(_iH5P.instances[0].contentId);
+            break;
+          }
+        } catch(e) {}
+      }
+    }
     if (!contentId) return stmt;  // non è uno statement H5P che possiamo migliorare
 
     var pageUrl      = getPageUrl();

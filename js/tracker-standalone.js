@@ -1367,17 +1367,38 @@
 
   function getActivityId(instance) {
     var cid = 'cid-' + instance.contentId;
-    if (window.H5PIntegration && H5PIntegration.contents && H5PIntegration.contents[cid]) {
-      var url = H5PIntegration.contents[cid].url;
-      if (url) return url;
+    var h5pInt = getH5PIntegration();
+    if (h5pInt && h5pInt.contents && h5pInt.contents[cid]) {
+      var url = h5pInt.contents[cid].url;
+      if (url && url.match(/^https?:\/\//)) return url;
     }
-    return (cfg.homepage || window.location.origin) + '/h5p-content/' + instance.contentId;
+    // In standalone: usa URL pagina + contentId
+    return window.location.href.replace(/#.*$/, '').replace(/\/$/, '') + '#content-' + instance.contentId;
+  }
+
+  function getH5PIntegration() {
+    // In standalone: H5PIntegration è nell'iframe
+    if (window.H5PIntegration && window.H5PIntegration.contents) return window.H5PIntegration;
+    var iframes = document.querySelectorAll('iframe');
+    for (var _i = 0; _i < iframes.length; _i++) {
+      try {
+        var _ii = iframes[_i].contentWindow && iframes[_i].contentWindow.H5PIntegration;
+        if (_ii && _ii.contents) return _ii;
+      } catch(e) {}
+    }
+    return null;
   }
 
   function getContentTitle(instance) {
     var cid = 'cid-' + instance.contentId;
-    if (window.H5PIntegration && H5PIntegration.contents && H5PIntegration.contents[cid]) {
-      return H5PIntegration.contents[cid].title || 'Contenuto H5P';
+    var h5pInt = getH5PIntegration();
+    if (h5pInt && h5pInt.contents && h5pInt.contents[cid]) {
+      return h5pInt.contents[cid].title || instance.libraryInfo && instance.libraryInfo.machineName || 'Contenuto H5P';
+    }
+    // Fallback: leggi dal params dell'istanza
+    if (instance.params && instance.params.interactiveVideo && instance.params.interactiveVideo.video) {
+      return instance.params.interactiveVideo.video.startScreenOptions && 
+             instance.params.interactiveVideo.video.startScreenOptions.title || 'Interactive Video';
     }
     return 'Contenuto H5P';
   }
@@ -1402,17 +1423,31 @@
 
     (window.__h5pTrackerDispatcher || H5P.externalDispatcher).on('xAPI', onNativeXAPI);
 
-    var _h5pCtx = (typeof H5P !== 'undefined' && H5P.instances) ? H5P : (window.__h5pTrackerDispatcher && window.__h5pTrackerDispatcher._h5pCtx) || H5P;
-    if (_h5pCtx && _h5pCtx.instances && _h5pCtx.instances.length) {
-      H5P.instances.forEach(attachEnhancedTracking);
+    // In standalone: H5P instances sono nell'iframe, non nella pagina padre
+    var _iframeH5P = null;
+    var iframes = document.querySelectorAll('iframe');
+    for (var _i = 0; _i < iframes.length; _i++) {
+      try {
+        var _ih = iframes[_i].contentWindow && iframes[_i].contentWindow.H5P;
+        if (_ih && _ih.instances) { _iframeH5P = _ih; break; }
+      } catch(e) {}
     }
 
-    var originalNewRunnable = H5P.newRunnable;
-    H5P.newRunnable = function () {
-      var inst = originalNewRunnable.apply(this, arguments);
-      if (inst) setTimeout(function () { attachEnhancedTracking(inst); }, 300);
-      return inst;
-    };
+    var _h5pCtx = _iframeH5P || (typeof H5P !== 'undefined' ? H5P : null);
+
+    if (_h5pCtx && _h5pCtx.instances && _h5pCtx.instances.length) {
+      _h5pCtx.instances.forEach(attachEnhancedTracking);
+    }
+
+    // Monkey-patch newRunnable nell'iframe per intercettare future istanze
+    if (_h5pCtx && _h5pCtx.newRunnable) {
+      var _origNewRunnable = _h5pCtx.newRunnable;
+      _h5pCtx.newRunnable = function () {
+        var inst = _origNewRunnable.apply(this, arguments);
+        if (inst) setTimeout(function () { attachEnhancedTracking(inst); }, 300);
+        return inst;
+      };
+    }
 
     log('Tracker attivo. LRS:', LRS_ENDPOINT || '(solo console)');
   }
